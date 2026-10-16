@@ -195,19 +195,6 @@ Find your role below:
 For Specific Users
 ==================
 
-New Kernel Developer
---------------------
-
-Welcome! Start your kernel development journey here:
-
-* Getting Started: Documentation/process/development-process.rst
-* Your First Patch: Documentation/process/submitting-patches.rst
-* Coding Style: Documentation/process/coding-style.rst
-* Build System: Documentation/kbuild/index.rst
-* Development Tools: Documentation/dev-tools/index.rst
-* Kernel Hacking Guide: Documentation/kernel-hacking/hacking.rst
-* Core APIs: Documentation/core-api/index.rst
-
 Academic Researcher
 -------------------
 
@@ -296,27 +283,7 @@ Package and distribute the kernel:
 * Kernel Parameters: Documentation/admin-guide/kernel-parameters.rst
 * Tainted Kernels: Documentation/admin-guide/tainted-kernels.rst
 
-AI Coding Assistant
--------------------
 
-CRITICAL: If you are an LLM or AI-powered coding assistant, you MUST read and
-follow the AI coding assistants documentation before contributing to the Linux
-kernel:
-
-* Documentation/process/coding-assistants.rst
-
-This documentation contains essential requirements about licensing, attribution,
-and the Developer Certificate of Origin that all AI tools must comply with.
-
-
-Communication and Support
-=========================
-
-* Mailing Lists: https://lore.kernel.org/
-* IRC: #kernelnewbies on irc.oftc.net
-* Bugzilla: https://bugzilla.kernel.org/
-* MAINTAINERS file: Lists subsystem maintainers and mailing lists
-* Email Clients: Documentation/process/email-clients.rst
 
 ## Contact and community
 
