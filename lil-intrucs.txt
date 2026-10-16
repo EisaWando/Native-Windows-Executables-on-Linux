@@ -1,0 +1,74 @@
+You have essentially built an in-kernel Wine alternative / Win32 executive runtime directly inside the kernel image (bzImage). Mapping IATs, hooking GetProcAddress, setting up PEB/TIB, and faking HWNDs in user space inside fs/binfmt_pe.c without instantly crashing CS16_Setup.exe is a solid proof of concept.
+However, you are now hitting the inevitable architecture wall.
+The Reality of Phase 6: The File Extraction Wall
+CS16_Setup.exe is likely an Inno Setup or NSIS compressed installer container.
+The GUI event loop you just stubbed out is actually trying to:
+ * Decompress an internal archive (LZMA/zlib/BZip2) stored inside the PE .rsrc or appended payload.
+ * Call Win32 File/Directory APIs (CreateFileW, WriteFile, CreateDirectoryW) to dump game assets onto disk.
+ * Access registry keys via Advapi32.dll (RegCreateKeyExW).
+Because your file IO and string APIs are returning hardcoded default responses, the installer is spinning its wheels in a endless stub loop or quietly failing file creation checks.
+Phase 6 Blueprint: Real Disk I/O & File Unpacking
+┌─────────────────────────────────────────────────────────────┐
+│                      CS16_Setup.exe                         │
+│  1. Unpacks compressed LZMA stream from .rsrc/overlay       │
+│  2. Calls Win32 File APIs (CreateFileW, WriteFile)          │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               v
+┌─────────────────────────────────────────────────────────────┐
+│                   sys_pe_nt.c DISPATCHER                    │
+│   Maps Windows Paths ("C:\Program Files\...") to Linux      │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │                              │
+               v                              v
+┌─────────────────────────────┐  ┌────────────────────────────┐
+│   Path Translation Layer    │  │ Linux VFS (filp_open/write)│
+│ "C:\" -> "/mnt/c/"          │  │ Raw disk writes to ext4    │
+└─────────────────────────────┘  └────────────────────────────┘
+
+1. Implement Windows-to-Linux VFS Path Translation
+When the installer calls CreateFileW("C:\\Program Files\\Counter-Strike 1.6\\hl.exe"), the kernel needs to dynamically rewrite the string before invoking Linux VFS operations:
+// Example Path Translation Helper in sys_pe_nt.c
+void translate_win_path_to_linux(const wchar_t *win_path, char *linux_path) {
+    // Converts "C:\Program Files\App" -> "/var/win_root/Program Files/App"
+    // Reverses backslashes '\\' to forward slashes '/'
+}
+
+2. Hook File I/O APIs to Real VFS Handles
+Replace mock file handle returns with internal calls to Linux kernel VFS wrappers (ksys_open, kernel_write):
+ * CreateFileA / CreateFileW: Convert path, allocate a dummy Win32 HANDLE, and open an actual file descriptor via filp_open().
+ * WriteFile: Pull the user-space buffer and write it directly to the virtual file system (vfs_write).
+ * CreateDirectoryA / CreateDirectoryW: Map to ksys_mkdir().
+Testing Your Progress
+ * Monitor /proc/pe_nt_logs for [UNBOUND_API] Alerts:
+   Run CS16_Setup.exe under QEMU and monitor log output to identify missing file extraction calls (such as CreateFileW, WriteFile, SetFilePointer).
+ * Verify File Drops on the Virtual Disk:
+   Once path translation is hooked up, check your test root directory (/var/win_root/) inside QEMU to see if real extracted files (like hl.exe, cstrike/mpdlls/mp.dll, or cstrike/pak0.pak) start populating the disk!
+
+Since you already crossed the line into building a native kernel executive, here is how you fix the scope and what instructions you need to drop on them right now to fix the design:
+1. Pull the Win32 Translation OUT of the Kernel (Split Architecture)
+Having the kernel intercept ⁠execve()⁠, parse PE headers, and set up 32-bit GDT segments (⁠binfmt_pe.c⁠) is totally fine. HOWEVER, forcing the kernel to translate hundreds of high-level Win32 calls (⁠CreateWindowEx⁠, ⁠RegQueryValueEx⁠) directly in Ring 0 is a massive dead end—it inflates the kernel image, breaches privilege boundaries, and causes endless crashes.
+What to order them to do:
+ Keep ⁠binfmt_pe.c⁠ purely as a low-level PE Loader & Memory Mapper.
+ Move the Win32 translation layer to a userland dynamic library (vDSO / injected DLL runner) or a lightweight system daemon.
+ Have the kernel setup only the bare-minimum low-level syscall bridge (⁠NtAllocateVirtualMemory⁠, ⁠NtReadFile⁠), and let userland handle the heavy Win32 mapping.
+2. Implement Real Process Initialization (PEB / TEB)
+Windows binaries expect specific data structures in memory before their ⁠main()⁠ or ⁠WinMain()⁠ even starts.
+What to order them to do:
+ Build a proper PEB (Process Environment Block) at ⁠fs:[0x30]⁠ and TEB (Thread Environment Block) at ⁠fs:[0x18]⁠.
+ Populate standard environment fields inside PEB: process parameters, heap pointers, and ⁠ImageBaseAddress⁠. Installers crash immediately if ⁠PEB->ProcessParameters⁠ is null when they check command-line args.
+3. Handle Dynamic Dependency Loading (⁠LoadLibrary⁠ / ⁠GetProcAddress⁠)
+Right now, your build relies on static vDSO stubs for 122 APIs. But installers dynamically fetch functions at runtime using string lookups.
+What to order them to do:
+ Implement a real export symbol table lookup for ⁠GetProcAddress⁠. When an app asks for an API name, it should return a valid code pointer inside your userland stub pool rather than falling back to a null address.
+4. Direct VFS Path Translation for File Extraction
+When ⁠CS16_Setup.exe⁠ tries to extract files, it passes Windows paths like ⁠C:\Program Files\Counter-Strike\⁠.
+What to order them to do:
+ Hook ⁠CreateFileW⁠ / ⁠WriteFile⁠ to a Path Translation Layer.
+ Automatically rewrite ⁠C:\⁠ to a sandboxed Linux directory (e.g., ⁠~/.wine_root/drive_c/⁠) and convert backslashes ⁠\⁠ to forward slashes ⁠/⁠ before hitting Linux VFS (⁠filp_open⁠).
+Course Correction & Scope Adjustment:
+1. Keep binfmt_pe.c in kernel space solely for
+PE/COFF header parsing, section mapping, page alignment, and A32 segment ( CS: 0x23 ) execution entry.
+2. Stop writing high-level Win32 APl logic (user32, gdi32, advapi32 ) directly inside kernel space. Offload API stubs and handle dispatching via a userland vDSO / injected wrapper.
+3. Fully populate the PEB structure (specifically PEB->ProcessParameters and ImageBaseAddress) at FS: [0x30] so runtime initializations don't null-pointer fault.
+4. Implement a dynamic string matching lookup for GetProcAddress and route all Win32 path strings ( C: \... ) through a VFS translation helper mapping to / var/win_root/.

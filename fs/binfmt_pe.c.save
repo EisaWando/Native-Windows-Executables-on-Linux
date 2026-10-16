@@ -1,0 +1,412 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Linux Kernel Native Windows PE (Portable Executable) Binary Format Handler
+ * Allows native execution of Windows binaries directly inside Linux kernel space.
+ * Pure PE/COFF loader: header parsing, section mapping, memory setup, entry point jump.
+ * Win32 API dispatch is intentionally out of scope and must be handled in userland.
+ * Educational and Testing Implementation
+ */
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/stat.h>
+#include <linux/binfmts.h>
+#include <linux/init.h>
+#include <linux/file.h>
+#include <linux/err.h>
+#include <linux/mman.h>
+#include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/slab.h>
+#include <linux/pe.h>
+#include <asm/param.h>
+#include <asm/processor.h>
+
+#include <asm/segment.h>
+#include <linux/string.h>
+
+#ifndef PAGE_ALIGN_DOWN
+#define PAGE_ALIGN_DOWN(addr) ((addr) & PAGE_MASK)
+#endif
+#ifndef PAGE_ALIGN_UP
+#define PAGE_ALIGN_UP(addr)   PAGE_ALIGN(addr)
+#endif
+
+static void resolve_pe_imports(unsigned long image_base, u32 import_rva)
+{
+	(void)image_base;
+	(void)import_rva;
+}
+
+static int load_pe_binary(struct linux_binprm *bprm)
+{
+	struct mz_hdr *dos_hdr;
+	struct pe_hdr pe_header;
+	struct pe32plus_opt_hdr opt64;
+	struct pe32_opt_hdr opt32;
+	unsigned long bridge_base, bridge_entry;
+	struct section_header *sections = NULL;
+	unsigned long image_base, entry_point, image_size;
+	unsigned long start_code = ~0UL, end_code = 0;
+	unsigned long start_data = 0, end_data = 0;
+	u32 import_rva = 0;
+	bool is_64bit = false;
+	loff_t pos;
+	int retval = -ENOEXEC;
+	int i;
+
+	/* 1. Check MZ header signature */
+	dos_hdr = (struct mz_hdr *)bprm->buf;
+	if (dos_hdr->magic != IMAGE_DOS_SIGNATURE)
+		return -ENOEXEC;
+
+	if (dos_hdr->peaddr < sizeof(struct mz_hdr) || dos_hdr->peaddr > 0x1000)
+		return -ENOEXEC;
+
+	pr_info("[BINFMT_PE] Valid MS-DOS MZ Signature detected for file '%s'\n",
+		bprm->filename);
+
+	/* 2. Read PE header from binary */
+	pos = dos_hdr->peaddr;
+	retval = kernel_read(bprm->file, &pe_header, sizeof(pe_header), &pos);
+	if (retval != sizeof(pe_header)) {
+		pr_err("[BINFMT_PE] Failed to read PE header from '%s'\n", bprm->filename);
+		return -ENOEXEC;
+	}
+
+	if (pe_header.magic != IMAGE_NT_SIGNATURE) {
+		pr_err("[BINFMT_PE] Invalid PE Header Magic Signature 0x%x\n", pe_header.magic);
+		return -ENOEXEC;
+	}
+
+	/* 3. Read Optional Header based on size/machine */
+	if (pe_header.machine == IMAGE_FILE_MACHINE_AMD64) {
+		is_64bit = true;
+		retval = kernel_read(bprm->file, &opt64, sizeof(opt64), &pos);
+		if (retval != sizeof(opt64))
+			return -ENOEXEC;
+		image_base = opt64.image_base;
+		entry_point = image_base + opt64.entry_point;
+		image_size = opt64.image_size;
+	} else if (pe_header.machine == IMAGE_FILE_MACHINE_I386) {
+		is_64bit = false;
+		retval = kernel_read(bprm->file, &opt32, sizeof(opt32), &pos);
+		if (retval != sizeof(opt32))
+			return -ENOEXEC;
+		image_base = opt32.image_base;
+		entry_point = image_base + opt32.entry_point;
+		image_size = opt32.image_size;
+
+		/* Read Data Directory 1 (Imports) */
+		if (opt32.data_dirs > 1) {
+			struct data_dirent import_dirent;
+			pos = dos_hdr->peaddr + sizeof(pe_header) + sizeof(struct pe32_opt_hdr) + 1 * sizeof(struct data_dirent);
+			if (kernel_read(bprm->file, &import_dirent, sizeof(import_dirent), &pos) == sizeof(import_dirent)) {
+				import_rva = import_dirent.virtual_address;
+			}
+		}
+	} else {
+		pr_err("[BINFMT_PE] Unsupported PE machine arch 0x%x in '%s'\n",
+		       pe_header.machine, bprm->filename);
+		return -ENOEXEC;
+	}
+
+	pr_info("[BINFMT_PE] Executable Parsing Success (%s, Base: 0x%lx, Entry: 0x%lx, Sections: %u, Import RVA: 0x%x)\n",
+		is_64bit ? "64-bit x86_64" : "32-bit i386",
+		image_base, entry_point, pe_header.sections, import_rva);
+
+	/* Read section headers */
+	if (pe_header.sections > 0) {
+		size_t sec_size = pe_header.sections * sizeof(struct section_header);
+		sections = kmalloc(sec_size, GFP_KERNEL);
+		if (!sections)
+			return -ENOMEM;
+
+		pos = dos_hdr->peaddr + sizeof(pe_header) + pe_header.opt_hdr_size;
+		retval = kernel_read(bprm->file, sections, sec_size, &pos);
+		if (retval != sec_size) {
+			kfree(sections);
+			pr_err("[BINFMT_PE] Failed to read section headers\n");
+			return -ENOEXEC;
+		}
+	}
+
+	/* 4. Flush process memory and begin execution setup */
+	retval = begin_new_exec(bprm);
+	if (retval) {
+		kfree(sections);
+		return retval;
+	}
+
+	setup_new_exec(bprm);
+
+	retval = setup_arg_pages(bprm, STACK_TOP, 0);
+	if (retval < 0) {
+		kfree(sections);
+		pr_err("[BINFMT_PE] Failed setting up stack pages: %d\n", retval);
+		return retval;
+	}
+
+/* Use standard kernel stack setup - setup_arg_pages already maps stack with VM_GROWSDOWN */
+	bprm->p = ALIGN(bprm->p, 16);
+
+	/* Move stack pointer to a safe location within the mapped stack (leave red zone) */
+	bprm->p = ALIGN_DOWN(bprm->p - 128, 16);
+
+	/* Explicitly map a dedicated stack area with fixed safe address */
+	{
+		unsigned long stack_top = STACK_TOP;
+		unsigned long stack_size = 0x100000;
+		unsigned long stack_base = stack_top - stack_size;
+		unsigned long stack_addr = vm_mmap(NULL, stack_base, stack_size,
+						   PROT_READ | PROT_WRITE,
+						   MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, 0);
+		if (!IS_ERR_VALUE(stack_addr)) {
+			/* Point sp to middle of stack */
+			unsigned long sp = stack_top - 0x8000;
+			sp = ALIGN_DOWN(sp, 16);
+			bprm->p = sp;
+			pr_info("[BINFMT_PE] Custom stack mapped at 0x%lx, sp=0x%lx\n",
+				stack_base, bprm->p);
+		} else {
+			pr_err("[BINFMT_PE] Custom stack mmap failed: %ld\n", (long)stack_addr);
+		}
+	}
+
+	/* 5. Map PE sections into user memory space */
+	for (i = 0; i < pe_header.sections; i++) {
+		struct section_header *sec = &sections[i];
+		unsigned long vaddr = image_base + sec->virtual_address;
+		unsigned long aligned_vaddr = PAGE_ALIGN_DOWN(vaddr);
+		unsigned long offset_diff = vaddr - aligned_vaddr;
+		unsigned long sec_len = sec->virtual_size ? sec->virtual_size : sec->raw_data_size;
+		unsigned long aligned_size;
+		unsigned long prot = PROT_READ;
+		unsigned long map_addr;
+
+		if (sec->raw_data_size > sec_len)
+			sec_len = sec->raw_data_size;
+
+		aligned_size = PAGE_ALIGN_UP(sec_len + offset_diff);
+
+		if (sec->flags & IMAGE_SCN_MEM_WRITE)
+			prot |= PROT_WRITE;
+		if (sec->flags & IMAGE_SCN_MEM_EXECUTE)
+			prot |= PROT_EXEC;
+
+		if (aligned_size > 0) {
+			map_addr = vm_mmap(NULL, aligned_vaddr, aligned_size,
+					   prot | PROT_WRITE,
+					   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
+			if (IS_ERR_VALUE(map_addr)) {
+				pr_err("[BINFMT_PE] Failed mapping section %.*s at 0x%lx (err: %ld)\n",
+				       8, sec->name, aligned_vaddr, (long)map_addr);
+			} else {
+				if (sec->raw_data_size > 0 && sec->data_addr > 0) {
+					size_t chunk_size = 65536;
+					char *kbuf = kmalloc(chunk_size, GFP_KERNEL);
+					if (kbuf) {
+						size_t remaining = sec->raw_data_size;
+						unsigned long dest_addr = vaddr;
+						pos = sec->data_addr;
+						while (remaining > 0) {
+							size_t to_read = min(remaining, chunk_size);
+							retval = kernel_read(bprm->file, kbuf, to_read, &pos);
+							if (retval <= 0)
+								break;
+							if (copy_to_user((void __user *)dest_addr, kbuf, retval)) {
+								pr_err("[BINFMT_PE] copy_to_user failed at 0x%lx for section %.*s\n",
+								       dest_addr, 8, sec->name);
+								break;
+							}
+							dest_addr += retval;
+							remaining -= retval;
+						}
+						kfree(kbuf);
+					}
+				}
+				pr_info("[BINFMT_PE] Mapped section %.*s at 0x%lx (vaddr: 0x%lx, size: 0x%lx, raw: 0x%x)\n",
+					8, sec->name, aligned_vaddr, vaddr, aligned_size, sec->raw_data_size);
+			}
+		}
+
+		if (sec->flags & IMAGE_SCN_CNT_CODE) {
+			if (vaddr < start_code)
+				start_code = vaddr;
+			if (vaddr + sec_len > end_code)
+				end_code = vaddr + sec_len;
+		} else if (sec->flags & (IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_CNT_UNINITIALIZED_DATA)) {
+			if (!start_data || vaddr < start_data)
+				start_data = vaddr;
+			if (vaddr + sec_len > end_data)
+				end_data = vaddr + sec_len;
+		}
+	}
+
+	kfree(sections);
+
+	/* Set up process memory bounds */
+	current->mm->start_code = start_code;
+	current->mm->end_code = end_code;
+	current->mm->start_data = start_data;
+	current->mm->end_data = end_data;
+	current->mm->start_brk = end_data;
+	current->mm->brk = end_data + 0x100000;
+
+	/* 5b. Initialize Windows TIB (Thread Information Block) and PEB (Process Environment Block) */
+	{
+		unsigned long tib_vaddr = 0x7ff00000;
+		unsigned long map_addr = vm_mmap(NULL, tib_vaddr, PAGE_SIZE,
+					 PROT_READ | PROT_WRITE,
+					 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
+		if (!IS_ERR_VALUE(map_addr)) {
+			unsigned long peb_vaddr = tib_vaddr + 0x800;
+			u32 tib_data[16] = {0};
+			u32 peb_data[8] = {0};
+
+			tib_data[0] = (u32)tib_vaddr;
+			tib_data[1] = (u32)(tib_vaddr + PAGE_SIZE);
+			tib_data[6] = (u32)tib_vaddr;
+			tib_data[12] = (u32)peb_vaddr;
+
+			if (copy_to_user((void __user *)tib_vaddr, tib_data, sizeof(tib_data)) == 0) {
+				peb_data[2] = (u32)image_base;
+				if (copy_to_user((void __user *)peb_vaddr, peb_data, sizeof(peb_data)) == 0)
+				pr_info("[BINFMT_PE] Initialized NT_TIB (0x%lx) and PEB (0x%lx) via FS segment base\n",
+					tib_vaddr, peb_vaddr);
+			}
+		}
+	}
+
+	/* 5c. Map Heap Memory Page at 0x7ff30000 */
+	{
+		unsigned long heap_vaddr = 0x7ff30000;
+		unsigned long map_addr = vm_mmap(NULL, heap_vaddr, 0x100000,
+					 PROT_READ | PROT_WRITE,
+					 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
+		if (!IS_ERR_VALUE(map_addr)) {
+			pr_info("[BINFMT_PE] Initialized Heap Memory Page at 0x%lx (1MB)\n", heap_vaddr);
+		}
+	}
+
+	/* 5d. Resolve PE Import Address Table (IAT) */
+	if (import_rva) {
+		resolve_pe_imports(image_base, import_rva);
+	}
+
+	pr_info("[BINFMT_PE] Starting Native Execution at Entry Point 0x%lx for '%s'\n",
+		entry_point, bprm->filename);
+
+	/* 5e. Map win32_bridge.so via file-backed mapping (allows EXEC) */
+	{
+		struct file *bridge_file;
+		loff_t pos = 0;
+		unsigned long bridge_size = 0x200000;
+
+		bridge_file = filp_open("/home/eisa/Documents/linux-7.1.6/win32_bridge.so", O_RDONLY, 0);
+		if (IS_ERR(bridge_file)) {
+			pr_warn("[BINFMT_PE] Failed to open win32_bridge.so: %ld\n", PTR_ERR(bridge_file));
+		} else {
+			struct mz_hdr dos_hdr;
+			struct pe_hdr pe_header;
+			struct pe32_opt_hdr opt32;
+
+			retval = kernel_read(bridge_file, &dos_hdr, sizeof(dos_hdr), &pos);
+			if (retval != sizeof(dos_hdr)) {
+				pr_err("[BINFMT_PE] Failed to read bridge MZ header\n");
+				goto bridge_done;
+			}
+			if (dos_hdr.magic != IMAGE_DOS_SIGNATURE) {
+				pr_err("[BINFMT_PE] Bridge missing MZ signature\n");
+				goto bridge_done;
+			}
+
+			pos = dos_hdr.peaddr;
+			retval = kernel_read(bridge_file, &pe_header, sizeof(pe_header), &pos);
+			if (retval != sizeof(pe_header)) {
+				pr_err("[BINFMT_PE] Failed to read bridge PE header\n");
+				goto bridge_done;
+			}
+			if (pe_header.magic != IMAGE_NT_SIGNATURE) {
+				pr_err("[BINFMT_PE] Bridge missing PE signature\n");
+				goto bridge_done;
+			}
+
+			if (pe_header.machine != IMAGE_FILE_MACHINE_I386) {
+				pr_err("[BINFMT_PE] Bridge not i386: 0x%x\n", pe_header.machine);
+				goto bridge_done;
+			}
+			retval = kernel_read(bridge_file, &opt32, sizeof(opt32), &pos);
+			if (retval != sizeof(opt32)) {
+				pr_err("[BINFMT_PE] Failed to read bridge optional header\n");
+				goto bridge_done;
+			}
+			bridge_base = opt32.image_base;
+			bridge_entry = bridge_base + opt32.entry_point;
+			bridge_size = opt32.image_size;
+
+			pr_info("[BINFMT_PE] Bridge: Base=0x%lx Entry=0x%lx Size=0x%lx\n",
+				bridge_base, bridge_entry, bridge_size);
+
+			retval = vm_mmap(bridge_file, bridge_base, bridge_size,
+					PROT_READ | PROT_WRITE | PROT_EXEC,
+					MAP_PRIVATE | MAP_FIXED, 0);
+			if (IS_ERR_VALUE(retval)) {
+				pr_err("[BINFMT_PE] Failed to map bridge file: %ld\n", retval);
+			} else {
+				pr_info("[BINFMT_PE] Bridge file-backed mapped at 0x%lx\n", bridge_base);
+			}
+
+bridge_done:
+			filp_close(bridge_file, NULL);
+		}
+	}
+
+	/* 6. Jump to Windows Binary Entry Point */
+	/* First jump to win32_bridge.so entry point for initialization */
+	if (bridge_entry != 0 && bridge_entry != bridge_base) {
+		finalize_exec(bprm);
+		start_thread(task_pt_regs(current), bridge_entry, bprm->p);
+	}
+
+	/* Then jump to actual PE entry point (bridge will chain) */
+	finalize_exec(bprm);
+	start_thread(task_pt_regs(current), entry_point, bprm->p);
+
+#ifdef CONFIG_X86_64
+	{
+		struct pt_regs *regs = task_pt_regs(current);
+		if (!is_64bit) {
+			regs->cs = __USER32_CS;
+			regs->ss = __USER_DS;
+			pr_info("[BINFMT_PE] Configured CPU for 32-bit Compatibility Mode (CS: 0x%lx, SS: 0x%lx)\n", (unsigned long)regs->cs, (unsigned long)regs->ss);
+		}
+	}
+#endif
+
+	return 0;
+}
+
+static struct linux_binfmt pe_format = {
+	.module		= THIS_MODULE,
+	.load_binary	= load_pe_binary,
+};
+
+static int __init init_pe_binfmt(void)
+{
+	register_binfmt(&pe_format);
+	pr_info("[BINFMT_PE] Registered Native Windows PE Executable Format Handler\n");
+	return 0;
+}
+
+static void __exit exit_pe_binfmt(void)
+{
+	unregister_binfmt(&pe_format);
+}
+
+module_init(init_pe_binfmt);
+module_exit(exit_pe_binfmt);
+
+MODULE_DESCRIPTION("Linux Kernel Native Windows PE Binary Format Handler");
+MODULE_LICENSE("GPL");
