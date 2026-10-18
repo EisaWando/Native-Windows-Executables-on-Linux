@@ -28,6 +28,7 @@
 #include <asm/segment.h>
 #include <linux/auxvec.h>
 #include <linux/string.h>
+#include <linux/elf.h>
 
 #ifndef PAGE_ALIGN_DOWN
 #define PAGE_ALIGN_DOWN(addr) ((addr) & PAGE_MASK)
@@ -462,62 +463,129 @@ static int load_pe_binary(struct linux_binprm *bprm)
 	pr_info("[BINFMT_PE] Starting Native Execution at Entry Point 0x%lx for '%s'\n",
 		entry_point, bprm->filename);
 
-	/* 5e. Map win32_bridge.so safely */
+	/* 5e. Load win32_bridge.so by PT_LOAD segments into a fixed anonymous region.
+	 *
+	 * We do NOT use a flat file copy because ELF file offsets differ from VMAs.
+	 * We do NOT add bridge_base to e_entry for ET_EXEC because e_entry is already
+	 * an absolute virtual address when the binary is linked as ET_EXEC.
+	 *
+	 * Algorithm:
+	 *  1. mmap 1 MiB of anonymous RWX memory at 0x70000000 (already zeroed -> .bss OK)
+	 *  2. Read the ELF program header table.
+	 *  3. For each PT_LOAD segment copy file bytes to (bridge_base + p_vaddr - load_bias).
+	 *     For ET_EXEC the load bias is 0 (VAs are absolute); the region starts at
+	 *     bridge_base so the copy target is (p_vaddr - bridge_base) bytes into the map.
+	 *  4. bridge_entry = e_entry for ET_EXEC (absolute VA), or bridge_base + e_entry
+	 *     for ET_DYN (position-independent, base-relative).
+	 */
 	unsigned long bridge_entry = 0;
 	{
 		struct file *bridge_file;
 		struct elfhdr elf_hdr;
+		struct elf_phdr *phdrs = NULL;
 		loff_t pos = 0;
 		unsigned long bridge_map;
-		loff_t bridge_size;
-		char *bridge_buffer;
-  bridge_file = filp_open("/home/eisa/Desktop/linux-7.1.6/win32_bridge.so", O_RDONLY, 0);
-  if (!IS_ERR(bridge_file)) {
-  	if (kernel_read(bridge_file, &elf_hdr, sizeof(elf_hdr), &pos) == sizeof(elf_hdr)) {
-  		if (memcmp(elf_hdr.e_ident, ELFMAG, SELFMAG) == 0) {
-  			bridge_base = 0x70000000;
-			bridge_size = i_size_read(file_inode(bridge_file));
-			if (bridge_size <= 0 || bridge_size > 0x100000) {
-				pr_err("[BINFMT_PE] Invalid bridge size: %lld\n",
-				       (long long)bridge_size);
+		char *seg_buf;
+		int phi;
+
+		bridge_file = filp_open("/home/eisa/Desktop/linux-7.1.6/win32_bridge.so",
+					O_RDONLY, 0);
+		if (IS_ERR(bridge_file))
+			goto skip_bridge;
+
+		if (kernel_read(bridge_file, &elf_hdr, sizeof(elf_hdr), &pos) != sizeof(elf_hdr) ||
+		    memcmp(elf_hdr.e_ident, ELFMAG, SELFMAG) != 0 ||
+		    elf_hdr.e_machine != EM_X86_64 ||
+		    (elf_hdr.e_type != ET_EXEC && elf_hdr.e_type != ET_DYN) ||
+		    elf_hdr.e_phnum == 0 || elf_hdr.e_phnum > 64) {
+			pr_err("[BINFMT_PE] bridge: bad ELF header\n");
+			goto close_bridge;
+		}
+
+		/* Anonymous zero-filled region: .bss (NOBITS) is automatically zeroed. */
+		bridge_base = 0x70000000;
+		bridge_map = vm_mmap(NULL, bridge_base, 0x100000,
+				     PROT_READ | PROT_EXEC | PROT_WRITE,
+				     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
+		if (IS_ERR_VALUE(bridge_map)) {
+			pr_err("[BINFMT_PE] bridge: vm_mmap failed: %ld\n", (long)bridge_map);
+			goto close_bridge;
+		}
+
+		/* Read program headers. */
+		phdrs = kmalloc_array(elf_hdr.e_phnum, sizeof(*phdrs), GFP_KERNEL);
+		if (!phdrs)
+			goto close_bridge;
+
+		pos = elf_hdr.e_phoff;
+		if (kernel_read(bridge_file, phdrs,
+				(size_t)elf_hdr.e_phnum * sizeof(*phdrs), &pos) !=
+		    (ssize_t)((size_t)elf_hdr.e_phnum * sizeof(*phdrs))) {
+			pr_err("[BINFMT_PE] bridge: failed to read phdrs\n");
+			goto close_bridge;
+		}
+
+		seg_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+		if (!seg_buf)
+			goto close_bridge;
+
+		for (phi = 0; phi < elf_hdr.e_phnum; phi++) {
+			struct elf_phdr *ph = &phdrs[phi];
+			unsigned long map_va, bytes_done;
+
+			if (ph->p_type != PT_LOAD || ph->p_filesz == 0)
+				continue;
+
+			/*
+			 * For ET_EXEC, p_vaddr is the absolute load address.
+			 * bridge_base == lowest segment VA (0x70000000 for our bridge).
+			 * dest within the anonymous region = p_vaddr itself (absolute).
+			 */
+			map_va = (elf_hdr.e_type == ET_EXEC) ? ph->p_vaddr
+							      : bridge_base + ph->p_vaddr;
+
+			if (map_va < bridge_base ||
+			    map_va + ph->p_filesz > bridge_base + 0x100000) {
+				pr_err("[BINFMT_PE] bridge: segment VA 0x%lx out of range\n",
+				       map_va);
+				kfree(seg_buf);
 				goto close_bridge;
 			}
-			/*
-			 * The bridge is ET_DYN but no ELF dynamic linker runs here.  Copy
-			 * its file image into anonymous memory so its .bss is zero-filled
-			 * and writable rather than faulting past the backing file's EOF.
-			 */
-			bridge_map = vm_mmap(NULL, bridge_base, 0x100000,
-					     PROT_READ | PROT_EXEC | PROT_WRITE,
-					     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0);
-			if (!IS_ERR_VALUE(bridge_map)) {
-				bridge_buffer = kmalloc(65536, GFP_KERNEL);
-				if (!bridge_buffer)
+
+			pos = ph->p_offset;
+			bytes_done = 0;
+			while (bytes_done < ph->p_filesz) {
+				size_t chunk = min_t(size_t, PAGE_SIZE,
+						     ph->p_filesz - bytes_done);
+				ssize_t got = kernel_read(bridge_file, seg_buf, chunk, &pos);
+
+				if (got != (ssize_t)chunk ||
+				    copy_to_user((void __user *)(map_va + bytes_done),
+						 seg_buf, chunk)) {
+					pr_err("[BINFMT_PE] bridge: copy failed at seg %d\n", phi);
+					kfree(seg_buf);
 					goto close_bridge;
-				pos = 0;
-				while (pos < bridge_size) {
-					size_t bytes = min_t(loff_t, 65536, bridge_size - pos);
-					retval = kernel_read(bridge_file, bridge_buffer, bytes, &pos);
-					if (retval != bytes ||
-					    copy_to_user((void __user *)(bridge_base + pos - bytes),
-							 bridge_buffer, bytes)) {
-						pr_err("[BINFMT_PE] Failed copying bridge image\n");
-						break;
-					}
 				}
-				kfree(bridge_buffer);
-				if (pos == bridge_size) {
-					bridge_entry = bridge_base + elf_hdr.e_entry;
-					pr_info("[BINFMT_PE] win32_bridge.so copied at 0x%lx (Entry: 0x%lx)\n",
-						bridge_base, bridge_entry);
-				}
-  			}
-  		}
-  	}
+				bytes_done += chunk;
+			}
+			pr_info("[BINFMT_PE] bridge: PT_LOAD[%d] va=0x%lx filesz=0x%lx\n",
+				phi, map_va, (unsigned long)ph->p_filesz);
+		}
+		kfree(seg_buf);
+
+		/*
+		 * e_entry for ET_EXEC is an absolute VA; for ET_DYN it is base-relative.
+		 */
+		bridge_entry = (elf_hdr.e_type == ET_EXEC) ? elf_hdr.e_entry
+							    : bridge_base + elf_hdr.e_entry;
+		pr_info("[BINFMT_PE] win32_bridge.so loaded at 0x%lx, entry=0x%lx\n",
+			bridge_base, bridge_entry);
+
 close_bridge:
-  	filp_close(bridge_file, NULL);
-  }
-}
+		kfree(phdrs);
+		filp_close(bridge_file, NULL);
+skip_bridge:;
+	}
 /* 6. Execution handoff */
 finalize_exec(bprm);
 

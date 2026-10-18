@@ -274,7 +274,7 @@ static __attribute__((noreturn)) void unimplemented_dispatch(unsigned int index)
 {
 	struct unknown_import *item = &unknown_imports[index];
 
-	raw_puts("UNIMPLEMENTED: ");
+	raw_puts("[BRIDGE] CALLED UNIMPLEMENTED: ");
 	raw_puts(item->dll);
 	raw_puts("!");
 	if (item->by_ordinal) {
@@ -362,7 +362,6 @@ static void resolve_imports(uintptr_t image_base, uint32_t import_rva,
 			uint16_t ordinal = 0;
 			bool by_ordinal = thunk & IMAGE_ORDINAL_FLAG64;
 			void *shim;
-			bool is_unimplemented = false;
 			unsigned int old_unknown = unknown_count;
 
 			if (by_ordinal)
@@ -372,12 +371,10 @@ static void resolve_imports(uintptr_t image_base, uint32_t import_rva,
 			shim = find_shim(dll, function, ordinal, by_ordinal);
 			*iat = (uintptr_t)shim;
 
-			if (unknown_count > old_unknown) {
+			if (unknown_count > old_unknown)
 				unimplemented++;
-				is_unimplemented = true;
-			} else {
+			else
 				resolved++;
-			}
 
 			if (verbose) {
 				raw_puts("BRIDGE: IAT "); raw_puts(dll); raw_puts("!");
@@ -387,15 +384,6 @@ static void resolve_imports(uintptr_t image_base, uint32_t import_rva,
 					raw_puts(function);
 				}
 				raw_puts(" -> "); raw_hex((uintptr_t)shim); raw_puts("\n");
-			} else if (is_unimplemented) {
-				raw_puts("[BRIDGE] UNIMPLEMENTED: ");
-				raw_puts(dll); raw_puts("!");
-				if (by_ordinal) {
-					raw_puts("ordinal "); raw_hex(ordinal);
-				} else {
-					raw_puts(function);
-				}
-				raw_puts("\n");
 			}
 		}
 	}
@@ -414,20 +402,19 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
 		      uint32_t import_size, uintptr_t *sp)
 {
 	bool verbose = false;
+	(void)sp;
 	install_crash_handler();
-	raw_puts("[BRIDGE] stage 1 (before env walk)\n");
 #ifdef BRIDGE_VERBOSE
 	verbose = true;
 #endif
-	raw_puts("[BRIDGE] stage 2 (after env walk)\n");
 	resolve_imports(image_base, import_rva, import_size, verbose);
-	raw_puts("[BRIDGE] stage 3 (after import walk)\n");
 }
 
 /* RDI=PE entry, RSI=PEB, RDX=image base, RCX=import RVA, R8=import size. */
 __attribute__((naked, noreturn)) void _start(void)
 {
 	__asm__ volatile (
+		/* Step 0: raw write "[BRIDGE] entered\n" before touching anything */
 		"push %rdi\n\t"
 		"push %rsi\n\t"
 		"push %rdx\n\t"
@@ -452,12 +439,37 @@ __attribute__((naked, noreturn)) void _start(void)
 		"pop %rdx\n\t"
 		"pop %rsi\n\t"
 		"pop %rdi\n\t"
+
+		/* Save PE entry VA (RDI) in R12 for the call below */
 		"mov %rdi, %r12\n\t"
-		"mov %rdx, %rdi\n\t"
-		"mov %rcx, %rsi\n\t"
-		"mov %r8, %rdx\n\t"
-		"mov %rsp, %rcx\n\t"
+
+		/* Call bridge_bootstrap(image_base, import_rva, import_size, sp):
+		 * System-V args: rdi=image_base rdx=import_rva, rsi=import_size...
+		 * Kernel hands us: RDI=PE entry, RDX=image_base, RCX=import_rva, R8=import_size */
+		"mov %rdx, %rdi\n\t"   /* arg1: image_base */
+		"mov %rcx, %rsi\n\t"   /* arg2: import_rva */
+		"mov %r8,  %rdx\n\t"   /* arg3: import_size */
+		"mov %rsp, %rcx\n\t"   /* arg4: stack pointer */
 		"call bridge_bootstrap\n\t"
-		"jmp *%r12\n\t"
+
+		/* Now call PE entry as Windows x64 (ms_abi):
+		 *   - Windows x64 ABI requires RSP to be 16-byte aligned immediately
+		 *     BEFORE executing a 'call' instruction.
+		 *   - Caller must allocate 32 bytes of shadow space (home space).
+		 *
+		 * Align RSP to 16 bytes, then allocate 32 bytes of shadow space (32 is a
+		 * multiple of 16, preserving 16-byte alignment before the call).
+		 * The 'call' instruction pushes the 8-byte return address, leaving RSP
+		 * at (16k + 8) upon entry to the target function, exactly as ms_abi expects.
+		 */
+		"and $-16, %rsp\n\t"   /* align to 16 */
+		"sub $32, %rsp\n\t"    /* 32 bytes shadow space (preserves 16-byte alignment) */
+		"call *%r12\n\t"       /* call PE entry (ms_abi, e.g. mainCRTStartup) */
+
+		/* If entry returns, exit cleanly */
+		"mov %rax, %rdi\n\t"
+		"mov $231, %rax\n\t"   /* SYS_exit_group */
+		"syscall\n\t"
+		"ud2\n\t"
 	);
 }
