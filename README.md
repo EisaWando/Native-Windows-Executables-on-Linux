@@ -5,7 +5,7 @@
 ![Target: x86-64 PE32+](https://img.shields.io/badge/target-Windows%20x64%20(PE32%2B)-blue)
 ![Run in a VM](https://img.shields.io/badge/safety-test%20in%20a%20VM-red)
 
-> **🎉 Milestone reached: a real Windows PE executable now runs end-to-end through our own kernel loader.**
+> **First Milestone reached: a real Windows PE executable now runs end-to-end through our own kernel loader.**
 > `./hello.exe` is recognized by the Linux kernel as a native binary format, mapped by `binfmt_pe.ko`, handed to a userland runtime, and prints its message and exits cleanly. No Wine, no emulator, no VM in the path.
 >
 > **Still early:** Notepad++ does not run yet. It loads and executes its startup code until it reaches the first Win32 function we haven't implemented. This README is written to be honest about both halves of that sentence.
