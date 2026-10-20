@@ -323,7 +323,8 @@ See [`LICENSE`](LICENSE) for the license that covers this project's original cod
 - **Tools:** Visual Studio Code, OpenCode, Antigravity
 - **AI agents used during development:** Claude Sonnet 4.5, Claude Opus 4.6, Codex OSS 120B (High), Gemini Flash 3.6 (Medium), Gemini Pro 3.1 (High), Qwen3-Coder-next
 
-Project started 24/08/2026 (DD/MM/YYYY). First end-to-end run (`hello.exe`): 18/10/2026.
+Project started 24/08/2026 (DD/MM/YYYY). 
+First end-to-end run (`hello.exe`): 18/10/2026.
 
 ---
 
