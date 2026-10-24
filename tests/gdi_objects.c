@@ -12,7 +12,7 @@ static int failures;
 #define CHECK(c) do { if (!(c)) failures++; } while (0)
 static LRESULT CALLBACK proc(HWND w, UINT m, WPARAM p, LPARAM l)
 { (void)w; (void)m; (void)p; (void)l; return 0; }
-static HBRUSH handles[1100];
+static HBRUSH handles[4096];
 void mainCRTStartup(void)
 {
     DWORD written;
@@ -83,11 +83,19 @@ void mainCRTStartup(void)
     CHECK(GetClassInfoExW(0, L"headlesstest", &saved));
     CHECK(UnregisterClassW(cls.lpszClassName, 0));
     CHECK(!GetClassInfoExW(0, cls.lpszClassName, &saved) && GetLastError() == ERROR_CLASS_DOES_NOT_EXIST);
-    /* Exercise capacity and stale generations without leaking GUI slots. */
+    /* Hold a DC and a selected object across several table doublings. */
+    dc = CreateCompatibleDC(0); brush = CreateSolidBrush(0x123456);
+    old = SelectObject(dc, brush); CHECK(old);
     int count = 0;
-    while (count < 1100 && (handles[count] = CreateSolidBrush(count))) count++;
-    CHECK(count > 900 && count < 1100 && GetLastError() == ERROR_NOT_ENOUGH_MEMORY);
-    for (int i = 0; i < count; i++) CHECK(DeleteObject(handles[i]));
+    while (count < 4096 && (handles[count] = CreateSolidBrush(count))) count++;
+    CHECK(count == 4096);
+    CHECK(GetCurrentObject(dc, OBJ_BRUSH) == brush);
+    CHECK(GetObjectW(brush, sizeof(lb), &lb) == sizeof(lb) && lb.lbColor == 0x123456);
+    for (int i = 0; i < count; i++) {
+        CHECK(GetObjectW(handles[i], sizeof(lb), &lb) == sizeof(lb) && lb.lbColor == (DWORD)i);
+        CHECK(DeleteObject(handles[i]));
+    }
+    CHECK(SelectObject(dc, old) == brush && DeleteDC(dc) && DeleteObject(brush));
     brush = CreateSolidBrush(0); CHECK(brush && DeleteObject(brush));
     /* Repeated DC teardown must release its private default bitmap. */
     for (int i = 0; i < 1100; i++) { dc = CreateCompatibleDC(0); CHECK(dc && DeleteDC(dc)); }

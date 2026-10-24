@@ -30,7 +30,6 @@
 #define STD_OUTPUT_HANDLE ((int32_t)-11)
 #define STD_ERROR_HANDLE  ((int32_t)-12)
 #define IMAGE_ORDINAL_FLAG64 0x8000000000000000ULL
-#define UNKNOWN_STUBS 1024
 
 typedef void *HANDLE;
 typedef uint32_t DWORD;
@@ -62,12 +61,15 @@ struct unknown_import {
 	const char *function;
 	uint16_t ordinal;
 	bool by_ordinal;
+    unsigned char *stub;
 };
 
 static unsigned char crash_stack[64 * 1024];
-static unsigned char unknown_code[UNKNOWN_STUBS][16];
-static struct unknown_import unknown_imports[UNKNOWN_STUBS];
-static unsigned int unknown_count;
+static struct unknown_import *unknown_imports;
+static unsigned int unknown_count, unknown_capacity;
+static inline long raw_syscall6(long, long, long, long, long, long, long);
+static __attribute__((noreturn)) void pe_loader_error(const char *message);
+void *memcpy(void *dest, const void *src, size_t n);
 
 static long raw_syscall4(long number, long arg1, long arg2, long arg3,
 			 long arg4)
@@ -652,21 +654,33 @@ static void *make_unknown(const char *dll, const char *function,
 {
 	unsigned int index;
 	unsigned char *stub;
-	int32_t displacement;
-
-	if (unknown_count >= UNKNOWN_STUBS)
-		return unknown_code[0];
+    if (unknown_count == unknown_capacity) {
+        unsigned cap = unknown_capacity ? unknown_capacity*2 : 128;
+        if (cap > 65536) pe_loader_error("too many unknown imports");
+        long records = raw_syscall6(SYS_mmap, 0, cap*sizeof(*unknown_imports), 3, 0x22, -1, 0);
+        long code = raw_syscall6(SYS_mmap, 0, (cap-unknown_capacity)*32, 7, 0x22, -1, 0);
+        if ((unsigned long)records >= (unsigned long)-4095 ||
+            (unsigned long)code >= (unsigned long)-4095) pe_loader_error("unknown import allocation failed");
+        struct unknown_import *items = (void *)records;
+        if (unknown_capacity) {
+            memcpy(items, unknown_imports, unknown_capacity*sizeof(*items));
+            raw_syscall3(SYS_munmap, (long)unknown_imports, unknown_capacity*sizeof(*items), 0);
+        }
+        for (unsigned i = unknown_capacity; i < cap; i++) items[i].stub = (void *)(code+(i-unknown_capacity)*32);
+        unknown_imports = items; unknown_capacity = cap;
+    }
 	index = unknown_count++;
 	unknown_imports[index].dll = dll;
 	unknown_imports[index].function = function;
 	unknown_imports[index].ordinal = ordinal;
 	unknown_imports[index].by_ordinal = by_ordinal;
-	stub = unknown_code[index];
+	stub = unknown_imports[index].stub;
 	stub[0] = 0xb8; /* mov $index, %eax */
 	*(uint32_t *)&stub[1] = index;
-	stub[5] = 0xe9; /* jmp common_unimplemented_trampoline */
-	displacement = (uint8_t *)common_unimplemented_trampoline - (stub + 10);
-	*(int32_t *)&stub[6] = displacement;
+    /* mmap may lie beyond rel32 reach of the fixed bridge. r11 is volatile. */
+    stub[5] = 0x49; stub[6] = 0xbb; /* movabs $trampoline, %r11 */
+    *(uint64_t *)&stub[7] = (uintptr_t)common_unimplemented_trampoline;
+    stub[15] = 0x41; stub[16] = 0xff; stub[17] = 0xe3; /* jmp *%r11 */
 	return stub;
 }
 
@@ -1119,7 +1133,7 @@ __attribute__((ms_abi)) void OutputDebugStringW(const uint16_t *s)
 /* Headless GUI objects: no display connection, rasterization or window dispatch.
  * Handles encode slot + generation; exhausted generations are never reused. */
 #define PE_GUI_BASE 0x50000000ULL
-#define PE_GUI_SLOTS 1024
+#define PE_GUI_MAX_SLOTS 65536
 #define PE_GUI_LIMIT 0x60000000ULL
 #define PE_GDI_PEN 1
 #define PE_GDI_BRUSH 2
@@ -1142,7 +1156,7 @@ struct pe_logbrush { uint32_t style, color; uint64_t hatch; };
 struct pe_logpen { uint32_t style; int32_t x, y; uint32_t color; };
 struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bpp; void *bits; };
 struct pe_gui_object {
-    uint32_t type, generation, selected, shared;
+    uint32_t type, generation, selected, shared, slot;
     HANDLE owner;
     struct { uintptr_t module, resource; uint32_t flags; int32_t width, height; uint16_t name[64]; } image;
     union {
@@ -1154,38 +1168,64 @@ struct pe_gui_object {
         int32_t rect[4];
     } u;
 };
-static struct pe_gui_object pe_gui_objects[PE_GUI_SLOTS];
+/* Only this vector moves on doubling; entry chunks and live pointers stay put. */
+static struct pe_gui_object **pe_gui_objects;
+static unsigned pe_gui_capacity, pe_gui_next;
 static HANDLE pe_stocks[20];
 _Static_assert(sizeof(struct pe_logfont) == 92, "LOGFONTW layout");
 _Static_assert(sizeof(struct pe_logbrush) == 16, "LOGBRUSH layout");
 _Static_assert(sizeof(struct pe_bitmap) == 32, "BITMAP layout");
 static HANDLE pe_gui_handle(struct pe_gui_object *o)
 {
-    return (HANDLE)(uintptr_t)(PE_GUI_BASE+4*((uint64_t)o->generation*PE_GUI_SLOTS+(o-pe_gui_objects)));
+    return (HANDLE)(uintptr_t)(PE_GUI_BASE+4*((uint64_t)o->generation*PE_GUI_MAX_SLOTS+o->slot));
 }
 static struct pe_gui_object *pe_gui_lookup(HANDLE h, unsigned type)
 {
     uintptr_t v = (uintptr_t)h;
     if (v >= PE_GUI_BASE && v < PE_GUI_LIMIT && !(v & 3)) {
         v = (v-PE_GUI_BASE)/4;
-        struct pe_gui_object *o = &pe_gui_objects[v%PE_GUI_SLOTS];
-        if (o->type && o->generation == v/PE_GUI_SLOTS && (!type || o->type == type)) return o;
+        unsigned slot = v%PE_GUI_MAX_SLOTS;
+        if (slot < pe_gui_capacity) {
+            struct pe_gui_object *o = pe_gui_objects[slot];
+            if (o->type && o->generation == v/PE_GUI_MAX_SLOTS && (!type || o->type == type)) return o;
+        }
     }
     SetLastError(6); return NULL;
 }
+static bool pe_gui_grow(void)
+{
+    unsigned old = pe_gui_capacity, cap = old ? old*2 : 1024;
+    if (cap > PE_GUI_MAX_SLOTS) { SetLastError(8); return false; }
+    struct pe_gui_object **vector = (void *)pe_mmap_rw(cap*sizeof(*vector));
+    struct pe_gui_object *chunk = (void *)pe_mmap_rw((cap-old)*sizeof(*chunk));
+    if (!vector || !chunk) {
+        if (vector) raw_syscall3(SYS_munmap, (long)vector, cap*sizeof(*vector), 0);
+        if (chunk) raw_syscall3(SYS_munmap, (long)chunk, (cap-old)*sizeof(*chunk), 0);
+        SetLastError(8); return false;
+    }
+    if (old) memcpy(vector, pe_gui_objects, old*sizeof(*vector));
+    for (unsigned i = old; i < cap; i++) { vector[i] = &chunk[i-old]; vector[i]->slot = i; }
+    if (old) raw_syscall3(SYS_munmap, (long)pe_gui_objects, old*sizeof(*vector), 0);
+    pe_gui_objects = vector; pe_gui_capacity = cap; pe_gui_next = old;
+    return true;
+}
 static struct pe_gui_object *pe_gui_new(unsigned type)
 {
-    for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
-        struct pe_gui_object *o = &pe_gui_objects[i];
-        if (!o->type && o->generation < 65535) {
-            unsigned generation = o->generation+1;
-            memset(o, 0, sizeof(*o)); o->generation = generation; o->type = type;
-            return o;
+    for (;;) {
+        for (unsigned n = 0; n < pe_gui_capacity; n++) {
+            unsigned i = (pe_gui_next+n)%pe_gui_capacity;
+            struct pe_gui_object *o = pe_gui_objects[i];
+            if (!o->type && o->generation < 1023) {
+                unsigned generation = o->generation+1;
+                memset(o, 0, sizeof(*o)); o->generation = generation; o->slot = i; o->type = type;
+                pe_gui_next = (i+1)%pe_gui_capacity;
+                return o;
+            }
         }
+        if (!pe_gui_grow()) return NULL;
     }
-    SetLastError(8); return NULL;
 }
-static void pe_gui_drop(struct pe_gui_object *o) { o->type = 0; }
+static void pe_gui_drop(struct pe_gui_object *o) { o->type = 0; pe_gui_next = o->slot; }
 static void pe_default_font(struct pe_logfont *font)
 {
     memset(font, 0, sizeof(*font)); font->height = -12; font->weight = 400; font->charset = 1;
@@ -1272,8 +1312,8 @@ static void pe_drop_dc(struct pe_gui_object *o)
         struct pe_gui_object *s = pe_gui_lookup(handles[i], 0); if (s) s->selected--;
     }
     /* The private monochrome default bitmap is owned by this DC. */
-    for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
-        struct pe_gui_object *b = &pe_gui_objects[i];
+    for (unsigned i = 0; i < pe_gui_capacity; i++) {
+        struct pe_gui_object *b = pe_gui_objects[i];
         if (b->type == PE_GDI_BITMAP && b->shared && b->owner == pe_gui_handle(o)) pe_gui_drop(b);
     }
     pe_gui_drop(o);
@@ -1448,7 +1488,7 @@ struct pe_gui_class {
     uint16_t atom; uint16_t name[256], menu[256];
     struct pe_wndclassex data; void *extra;
 };
-static struct pe_gui_class pe_gui_classes[64];
+static struct pe_gui_class *pe_gui_classes;
 _Static_assert(sizeof(struct pe_wndclassex) == 80, "WNDCLASSEXW layout");
 static bool pe_copy_name(uint16_t *out, unsigned cap, const uint16_t *src)
 {
@@ -1469,6 +1509,8 @@ __attribute__((ms_abi)) uint16_t RegisterClassExW(const struct pe_wndclassex *c)
 {
     if (!c || c->size != sizeof(*c) || (uintptr_t)c->class_name < 65536 || !*c->class_name || !c->wndproc ||
         c->class_extra < 0 || c->window_extra < 0 || c->class_extra > 4096 || c->window_extra > 4096) { SetLastError(87); return 0; }
+    if (!pe_gui_classes) pe_gui_classes = (void *)pe_mmap_rw(64*sizeof(*pe_gui_classes));
+    if (!pe_gui_classes) { SetLastError(8); return 0; }
     struct pe_gui_class *free = NULL;
     for (unsigned i = 0; i < 64; i++) {
         struct pe_gui_class *v = &pe_gui_classes[i];
@@ -1490,6 +1532,7 @@ __attribute__((ms_abi)) uint16_t RegisterClassExW(const struct pe_wndclassex *c)
 }
 static struct pe_gui_class *pe_class_lookup(HANDLE instance, const uint16_t *name)
 {
+    if (!pe_gui_classes) { SetLastError(1411); return NULL; }
     for (unsigned i = 0; i < 64; i++) {
         struct pe_gui_class *v = &pe_gui_classes[i];
         if (v->atom && v->data.instance == instance &&
@@ -1516,8 +1559,8 @@ __attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name,
     unsigned tag = type == 0 ? PE_GDI_BITMAP : type == 1 ? PE_GUI_ICON : PE_GUI_CURSOR;
     uint16_t copy[64] = {0};
     if ((uintptr_t)name >= 65536 && !pe_copy_name(copy, 64, name)) return NULL;
-    if (flags & 0x8000) for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
-        struct pe_gui_object *s = &pe_gui_objects[i];
+    if (flags & 0x8000) for (unsigned i = 0; i < pe_gui_capacity; i++) {
+        struct pe_gui_object *s = pe_gui_objects[i];
         if (s->type == tag && s->shared && s->image.module == (uintptr_t)instance &&
             s->image.width == (width ? width : 32) && s->image.height == (height ? height : 32) &&
             s->image.flags == flags && ((uintptr_t)name < 65536 ? s->image.resource == (uintptr_t)name :
