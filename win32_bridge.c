@@ -1665,9 +1665,72 @@ __attribute__((ms_abi)) BOOL SleepConditionVariableSRW(uint64_t *cv, uint64_t *l
     return 1; /* spurious/interrupted wakes are permitted */
 }
 
+/* Stable emulated Windows 10 / x64 / single-CPU process profile. */
+__attribute__((ms_abi)) BOOL GetVersionExW(void *out)
+{
+    if (!out || (*(DWORD *)out != 276 && *(DWORD *)out != 284)) { SetLastError(87); return 0; }
+    DWORD size = *(DWORD *)out;
+    memset(out, 0, size); DWORD *v = out;
+    v[0] = size; v[1] = 10; v[3] = 19045; v[4] = 2;
+    if (size == 284) ((uint8_t *)out)[282] = 1; /* VER_NT_WORKSTATION */
+    return 1;
+}
+__attribute__((ms_abi)) BOOL GetVersionExA(void *out)
+{
+    if (!out || (*(DWORD *)out != 148 && *(DWORD *)out != 156)) { SetLastError(87); return 0; }
+    DWORD size = *(DWORD *)out;
+    memset(out, 0, size); DWORD *v = out;
+    v[0] = size; v[1] = 10; v[3] = 19045; v[4] = 2;
+    if (size == 156) ((uint8_t *)out)[154] = 1;
+    return 1;
+}
+__attribute__((ms_abi)) int32_t RtlGetVersion(void *out)
+{ return GetVersionExW(out) ? 0 : (int32_t)0xc000000d; }
+__attribute__((ms_abi)) DWORD GetVersion(void) { return (19045u << 16) | 10; }
+struct pe_system_info {
+    uint16_t arch, reserved; uint32_t page_size;
+    uintptr_t min_address, max_address, active_mask;
+    uint32_t processors, processor_type, granularity; uint16_t level, revision;
+};
+_Static_assert(sizeof(struct pe_system_info) == 48, "SYSTEM_INFO x64 layout");
+__attribute__((ms_abi)) void GetSystemInfo(struct pe_system_info *out)
+{
+    if (!out) { SetLastError(87); return; }
+    *out = (struct pe_system_info){9, 0, 4096, 0x10000, 0x7ffffffeffffULL, 1, 1, 8664, 65536, 6, 0x3a09};
+}
+__attribute__((ms_abi)) void GetNativeSystemInfo(struct pe_system_info *out) { GetSystemInfo(out); }
+__attribute__((ms_abi)) DWORD GetCurrentProcessorNumber(void) { return 0; }
+__attribute__((ms_abi)) BOOL IsWow64Process(HANDLE process, BOOL *out)
+{
+    if (process != (HANDLE)(intptr_t)-1) { SetLastError(6); return 0; }
+    if (!out) { SetLastError(87); return 0; } *out = 0; return 1;
+}
+__attribute__((ms_abi)) BOOL IsWow64Process2(HANDLE process, uint16_t *machine, uint16_t *native)
+{
+    if (process != (HANDLE)(intptr_t)-1) { SetLastError(6); return 0; }
+    if (!machine || !native) { SetLastError(87); return 0; }
+    *machine = 0; *native = 0x8664; return 1;
+}
+__attribute__((ms_abi)) BOOL GetProcessAffinityMask(HANDLE process, uintptr_t *process_mask, uintptr_t *system_mask)
+{
+    if (process != (HANDLE)(intptr_t)-1) { SetLastError(6); return 0; }
+    if (!process_mask || !system_mask) { SetLastError(87); return 0; }
+    *process_mask = *system_mask = 1; return 1;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetVersionExW")) return GetVersionExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetVersionExA")) return GetVersionExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RtlGetVersion")) return RtlGetVersion;
+    if (!by_ordinal && ascii_equal_ci(function, "GetVersion")) return GetVersion;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemInfo")) return GetSystemInfo;
+    if (!by_ordinal && ascii_equal_ci(function, "GetNativeSystemInfo")) return GetNativeSystemInfo;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCurrentProcessorNumber")) return GetCurrentProcessorNumber;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWow64Process")) return IsWow64Process;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWow64Process2")) return IsWow64Process2;
+    if (!by_ordinal && ascii_equal_ci(function, "GetProcessAffinityMask")) return GetProcessAffinityMask;
     if (!by_ordinal && ascii_equal_ci(function, "InitializeSRWLock")) return InitializeSRWLock;
     if (!by_ordinal && ascii_equal_ci(function, "TryAcquireSRWLockExclusive")) return TryAcquireSRWLockExclusive;
     if (!by_ordinal && ascii_equal_ci(function, "TryAcquireSRWLockShared")) return TryAcquireSRWLockShared;
