@@ -185,6 +185,6 @@ You should, if it works for you; they are excellent. This is a research effort e
 
 ## Contact and community
 
-*(Add your repository URL, chat channel, and a contact method here.)*
+*Discord Community is coming soon..*
 
 If you've ever wished you could just double-click a `.exe` on Linux and have it run natively, we'd love your help.
