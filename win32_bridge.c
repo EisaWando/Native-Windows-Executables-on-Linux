@@ -2743,9 +2743,88 @@ __attribute__((ms_abi)) DWORD GetTempPathA(DWORD cap, char *out)
     return pe_native_folder_ansi(temp && temp[0] == '/' ? temp : "/tmp", out, cap, true);
 }
 
+__attribute__((ms_abi)) BOOL CopyFileW(const uint16_t *source, const uint16_t *destination, BOOL exclusive)
+{
+    char src[4096], dst[4096];
+    if (!pe_linux_path(source, src, sizeof(src)) || !pe_linux_path(destination, dst, sizeof(dst))) return 0;
+    long input = raw_syscall4(SYS_openat, -100, (long)src, 0x80000, 0);
+    if (input < 0) { SetLastError(pe_file_error(input)); return 0; }
+    struct stat a, b; long error = raw_syscall3(SYS_fstat, input, (long)&a, 0), output = -1;
+    void *buffer = NULL;
+    if (error < 0) goto done;
+    if (!S_ISREG(a.st_mode)) { error = -13; goto done; }
+    if (!raw_syscall4(SYS_newfstatat, -100, (long)dst, (long)&b, 0) && a.st_dev == b.st_dev && a.st_ino == b.st_ino) {
+        error = -17; goto done;
+    }
+    output = raw_syscall4(SYS_openat, -100, (long)dst, 0x80000|1|0x40|(exclusive ? 0x80 : 0x200), 0666);
+    if (output < 0) { error = output; goto done; }
+    buffer = pe_raw_map(65536);
+    if (!buffer) { error = -12; goto done; }
+    for (;;) {
+        long n = raw_syscall3(SYS_read, input, (long)buffer, 65536);
+        if (n == -4) continue;
+        if (n <= 0) { error = n; break; }
+        long pos = 0;
+        while (pos < n) {
+            long wrote = raw_syscall3(SYS_write, output, (long)buffer+pos, n-pos);
+            if (wrote == -4) continue;
+            if (wrote <= 0) { error = wrote ? wrote : -5; goto done; }
+            pos += wrote;
+        }
+    }
+done:
+    if (buffer) raw_syscall3(SYS_munmap, (long)buffer, 65536, 0);
+    if (output >= 0) raw_syscall3(SYS_close, output, 0, 0);
+    raw_syscall3(SYS_close, input, 0, 0);
+    if (error < 0) { SetLastError(pe_file_error(error)); return 0; }
+    return 1; /* content copy; complete DOS metadata/ACL preservation is TODO */
+}
+__attribute__((ms_abi)) BOOL CopyFileA(const char *source, const char *destination, BOOL exclusive)
+{
+    uint16_t src[4096], dst[4096];
+    if (!source || !destination) { SetLastError(87); return 0; }
+    if (!MultiByteToWideChar(65001, 8, source, -1, src, 4096) || !MultiByteToWideChar(65001, 8, destination, -1, dst, 4096)) return 0;
+    return CopyFileW(src, dst, exclusive);
+}
+__attribute__((ms_abi)) BOOL DeleteFileA(const char *path)
+{
+    uint16_t wide[4096];
+    if (!path) { SetLastError(87); return 0; }
+    if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return 0;
+    return DeleteFileW(wide);
+}
+__attribute__((ms_abi)) BOOL FlushFileBuffers(HANDLE h)
+{
+    int fd = pe_fd_pin(h); if (fd < 0) return 0;
+    long r; do { r = raw_syscall3(SYS_fsync, fd, 0, 0); } while (r == -4);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; } return 1;
+}
+struct pe_file_information {
+    DWORD attributes; struct pe_filetime creation, access, write;
+    DWORD volume, size_high, size_low, links, index_high, index_low;
+};
+_Static_assert(sizeof(struct pe_file_information) == 52, "BY_HANDLE_FILE_INFORMATION layout");
+__attribute__((ms_abi)) BOOL GetFileInformationByHandle(HANDLE h, struct pe_file_information *out)
+{
+    if (!out) { SetLastError(87); return 0; }
+    int fd = pe_fd_pin(h); if (fd < 0) return 0;
+    struct stat s; long r = raw_syscall3(SYS_fstat, fd, (long)&s, 0);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; }
+    *out = (struct pe_file_information){pe_stat_attributes(&s), pe_stat_time(s.st_ctim.tv_sec, s.st_ctim.tv_nsec),
+        pe_stat_time(s.st_atim.tv_sec, s.st_atim.tv_nsec), pe_stat_time(s.st_mtim.tv_sec, s.st_mtim.tv_nsec),
+        s.st_dev, (uint64_t)s.st_size >> 32, s.st_size, s.st_nlink, (uint64_t)s.st_ino >> 32, s.st_ino}; return 1;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "CopyFileW")) return CopyFileW;
+    if (!by_ordinal && ascii_equal_ci(function, "CopyFileA")) return CopyFileA;
+    if (!by_ordinal && ascii_equal_ci(function, "DeleteFileA")) return DeleteFileA;
+    if (!by_ordinal && ascii_equal_ci(function, "FlushFileBuffers")) return FlushFileBuffers;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileInformationByHandle")) return GetFileInformationByHandle;
     if (!by_ordinal && ascii_equal_ci(function, "SHGetFolderPathW")) return SHGetFolderPathW;
     if (!by_ordinal && ascii_equal_ci(function, "SHGetFolderPathA")) return SHGetFolderPathA;
     if (!by_ordinal && ascii_equal_ci(function, "SHGetSpecialFolderPathW")) return SHGetSpecialFolderPathW;

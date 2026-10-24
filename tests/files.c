@@ -20,6 +20,25 @@ void mainCRTStartup(void)
         for (unsigned i = 0; i < count; i++) ok &= buffer[i] == text[i];
         WIN32_FILE_ATTRIBUTE_DATA data;
         ok &= GetFileAttributesExW(path, GetFileExInfoStandard, &data) && data.nFileSizeLow == sizeof(text)-1 && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+        ok &= FlushFileBuffers(h);
+        BY_HANDLE_FILE_INFORMATION info;
+        ok &= GetFileInformationByHandle(h, &info) && info.nFileSizeLow == sizeof(text)-1;
+        static WCHAR copy_path[256]; static char path_a[512], copy_a[512];
+        lstrcpyW(copy_path, path); lstrcatW(copy_path, L"_copy");
+        ok &= CopyFileW(path, copy_path, TRUE);
+        ok &= !CopyFileW(path, copy_path, TRUE) && GetLastError() == ERROR_FILE_EXISTS;
+        ok &= !CopyFileW(path, path, FALSE);
+        ok &= WideCharToMultiByte(CP_UTF8, 0, path, -1, path_a, 512, 0, 0) > 0;
+        ok &= WideCharToMultiByte(CP_UTF8, 0, copy_path, -1, copy_a, 512, 0, 0) > 0;
+        ok &= CopyFileA(path_a, copy_a, FALSE);
+        HANDLE copy = CreateFileW(copy_path, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+        ok &= copy != INVALID_HANDLE_VALUE;
+        if (copy != INVALID_HANDLE_VALUE) {
+            ok &= ReadFile(copy, buffer, sizeof(buffer), &count, 0) && count == sizeof(text)-1;
+            for (unsigned i = 0; i < count; i++) ok &= buffer[i] == text[i];
+            ok &= CloseHandle(copy);
+        }
+        ok &= DeleteFileA(copy_a);
         ok &= CloseHandle(h);
         ok &= !ReadFile(h, buffer, 1, &count, 0) && GetLastError() == ERROR_INVALID_HANDLE;
         ok &= DeleteFileW(path);
