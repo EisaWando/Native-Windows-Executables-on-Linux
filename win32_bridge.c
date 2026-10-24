@@ -1113,6 +1113,10 @@ __attribute__((ms_abi)) int lstrlenW(const uint16_t *s)
 { int n = 0; if (s) while (s[n]) n++; return n; }
 __attribute__((ms_abi)) void Sleep(DWORD ms)
 {
+    if (!ms) { raw_syscall3(SYS_sched_yield, 0, 0, 0); return; }
+    if (ms == UINT32_MAX) {
+        for (;;) { struct pe_timespec day = {86400, 0}; raw_syscall3(SYS_nanosleep, (long)&day, 0, 0); }
+    }
     struct pe_timespec req = {ms / 1000, (ms % 1000) * 1000000LL}, rem;
     while (raw_syscall3(SYS_nanosleep, (long)&req, (long)&rem, 0) == -4) req = rem;
 }
@@ -2360,7 +2364,7 @@ __attribute__((ms_abi, noreturn)) void ExitThread(DWORD code)
             }
         t->exit_code = code; t->done = true; pe_wait_changed();
     }
-    raw_syscall3(SYS_exit, 0, 0, 0);
+    raw_syscall3(SYS_exit, code, 0, 0);
     for (;;) __asm__ volatile ("ud2");
 }
 static void pe_main_thread_init(void)

@@ -6,6 +6,7 @@ static volatile LONG total, protected_total, failures, destructors, attaches, de
 static CRITICAL_SECTION critical;
 static DWORD tls_slot, fls_slot, tls_index = 0xffffffff;
 static HANDLE start_event, done_event, ready_semaphore;
+static uintptr_t main_teb, main_peb;
 struct local_data { DWORD initial, value, zero; };
 static const DWORD template_data __attribute__((section(".tls"), used)) = 0x12345678;
 static struct local_data *locals(void)
@@ -35,6 +36,14 @@ static DWORD WINAPI worker(void *parameter)
     check(!TlsGetValue(tls_slot) && !FlsGetValue(fls_slot));
     check(TlsSetValue(tls_slot, (void *)number) && FlsSetValue(fls_slot, (void *)number));
     check(locals()->value == GetCurrentThreadId());
+    uintptr_t teb, peb; void *direct; void **fls_values;
+    __asm__ volatile ("mov %%gs:0x30,%0" : "=r"(teb));
+    __asm__ volatile ("mov %%gs:0x60,%0" : "=r"(peb));
+    __asm__ volatile ("mov %%gs:0x1480(,%1,8),%0" : "=r"(direct) : "r"((uintptr_t)tls_slot) : "memory");
+    __asm__ volatile ("mov %%gs:0x17c8,%0" : "=r"(fls_values) : : "memory");
+    check(teb != main_teb && peb == main_peb && direct == (void *)number && fls_values && fls_values[fls_slot] == (void *)number);
+    check(*(uint64_t *)(teb+0x40) == GetCurrentProcessId() && *(uint64_t *)(teb+0x48) == GetCurrentThreadId());
+    check((uintptr_t)&number >= *(uintptr_t *)(teb+0x10) && (uintptr_t)&number < *(uintptr_t *)(teb+8));
     check(!TryEnterCriticalSection(&critical)); /* main holds it until all workers are ready */
     check(ReleaseSemaphore(ready_semaphore, 1, 0));
     check(WaitForSingleObject(start_event, 10000) == WAIT_OBJECT_0);
@@ -85,6 +94,8 @@ void mainCRTStartup(void)
 {
     HANDLE threads[N]; DWORD ids[N], code, written; int expected_threads = N;
     DWORD main_tid = GetCurrentThreadId();
+    __asm__ volatile ("mov %%gs:0x30,%0" : "=r"(main_teb));
+    __asm__ volatile ("mov %%gs:0x60,%0" : "=r"(main_peb));
     check(locals()->value == main_tid);
     tls_slot = TlsAlloc(); fls_slot = FlsAlloc(fls_destructor);
     check(tls_slot != TLS_OUT_OF_INDEXES && fls_slot != FLS_OUT_OF_INDEXES);
