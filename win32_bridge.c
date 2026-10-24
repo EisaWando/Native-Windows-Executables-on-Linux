@@ -2510,9 +2510,98 @@ PE_DEFINE_LSTR(A, char, lstrlenA)
 PE_DEFINE_LSTR(W, uint16_t, lstrlenW)
 #undef PE_DEFINE_LSTR
 
+struct pe_user_name { uint16_t name[256]; };
+struct pe_user_names { struct pe_user_name *entries; unsigned count, capacity; };
+static struct pe_user_names pe_message_names, pe_clipboard_names;
+static unsigned pe_user_name_register(struct pe_user_names *table, const uint16_t *name)
+{
+    if (!name || !*name) { SetLastError(87); return 0; }
+    uint16_t copy[256]; if (!pe_copy_name(copy, 256, name)) return 0;
+    PE_STATE_GUARD;
+    for (unsigned i = 0; i < table->count; i++)
+        if (pe_name_equal(table->entries[i].name, copy)) return 0xc000+i;
+    if (table->count == table->capacity) {
+        unsigned cap = table->capacity ? table->capacity*2 : 64;
+        if (cap > 0x4000) { SetLastError(8); return 0; }
+        struct pe_user_name *entries = pe_raw_map(cap*sizeof(*entries));
+        if (!entries) { SetLastError(8); return 0; }
+        if (table->entries) {
+            memcpy(entries, table->entries, table->count*sizeof(*entries));
+            raw_syscall3(SYS_munmap, (long)table->entries, table->capacity*sizeof(*entries), 0);
+        }
+        table->entries = entries; table->capacity = cap;
+    }
+    pe_copy_name(table->entries[table->count].name, 256, copy); return 0xc000+table->count++;
+}
+__attribute__((ms_abi)) unsigned RegisterWindowMessageW(const uint16_t *name)
+{ return pe_user_name_register(&pe_message_names, name); }
+__attribute__((ms_abi)) unsigned RegisterWindowMessageA(const char *name)
+{
+    uint16_t wide[256];
+    if (!name || !MultiByteToWideChar(65001, 8, name, -1, wide, 256)) return 0;
+    return RegisterWindowMessageW(wide);
+}
+__attribute__((ms_abi)) unsigned RegisterClipboardFormatW(const uint16_t *name)
+{ return pe_user_name_register(&pe_clipboard_names, name); }
+__attribute__((ms_abi)) unsigned RegisterClipboardFormatA(const char *name)
+{
+    uint16_t wide[256];
+    if (!name || !MultiByteToWideChar(65001, 8, name, -1, wide, 256)) return 0;
+    return RegisterClipboardFormatW(wide);
+}
+__attribute__((ms_abi)) int GetClipboardFormatNameW(unsigned format, uint16_t *out, int cap)
+{
+    if (!out || cap <= 0) { SetLastError(87); return 0; }
+    PE_STATE_GUARD;
+    if (format < 0xc000 || format-0xc000 >= pe_clipboard_names.count) { SetLastError(87); return 0; }
+    const uint16_t *name = pe_clipboard_names.entries[format-0xc000].name;
+    int count = lstrlenW(name); if (count >= cap) count = cap-1;
+    memcpy(out, name, count*2); out[count] = 0; return count;
+}
+__attribute__((ms_abi)) int GetClipboardFormatNameA(unsigned format, char *out, int cap)
+{
+    if (!out || cap <= 0) { SetLastError(87); return 0; }
+    uint16_t wide[256]; int count = GetClipboardFormatNameW(format, wide, 256);
+    if (!count) return 0;
+    /* Use complete UTF-8 scalars when truncating a registered name. */
+    char utf8[1024]; int n = WideCharToMultiByte(65001, 0, wide, count, utf8, sizeof(utf8), NULL, NULL);
+    if (!n) return 0;
+    int bytes = n < cap ? n : cap-1;
+    while (bytes < n && bytes > 0 && ((unsigned char)utf8[bytes] & 0xc0) == 0x80) bytes--;
+    memcpy(out, utf8, bytes); out[bytes] = 0; return bytes;
+}
+struct pe_wndclass {
+    uint32_t style; void *wndproc; int32_t class_extra, window_extra;
+    HANDLE instance, icon, cursor, background; const uint16_t *menu_name, *class_name;
+};
+_Static_assert(sizeof(struct pe_wndclass) == 72, "WNDCLASSW layout");
+__attribute__((ms_abi)) uint16_t RegisterClassW(const struct pe_wndclass *c)
+{
+    if (!c) { SetLastError(87); return 0; }
+    struct pe_wndclassex ex = {sizeof(ex), c->style, c->wndproc, c->class_extra, c->window_extra,
+        c->instance, c->icon, c->cursor, c->background, c->menu_name, c->class_name, NULL};
+    return RegisterClassExW(&ex);
+}
+__attribute__((ms_abi)) BOOL GetClassInfoW(HANDLE instance, const uint16_t *name, struct pe_wndclass *out)
+{
+    if (!out) { SetLastError(87); return 0; }
+    PE_STATE_GUARD; struct pe_wndclassex ex = {0}; ex.size = sizeof(ex);
+    if (!GetClassInfoExW(instance, name, &ex)) return 0;
+    *out = (struct pe_wndclass){ex.style, ex.wndproc, ex.class_extra, ex.window_extra,
+        ex.instance, ex.icon, ex.cursor, ex.background, ex.menu_name, ex.class_name}; return 1;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterWindowMessageW")) return RegisterWindowMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterWindowMessageA")) return RegisterWindowMessageA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterClipboardFormatW")) return RegisterClipboardFormatW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterClipboardFormatA")) return RegisterClipboardFormatA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameW")) return GetClipboardFormatNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameA")) return GetClipboardFormatNameA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterClassW")) return RegisterClassW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClassInfoW")) return GetClassInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "lstrcpynA")) return lstrcpynA;
     if (!by_ordinal && ascii_equal_ci(function, "lstrcpynW")) return lstrcpynW;
     if (!by_ordinal && ascii_equal_ci(function, "lstrcpyA")) return lstrcpyA;

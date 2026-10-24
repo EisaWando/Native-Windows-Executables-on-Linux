@@ -83,6 +83,18 @@ void mainCRTStartup(void)
     CHECK(GetClassInfoExW(0, L"headlesstest", &saved));
     CHECK(UnregisterClassW(cls.lpszClassName, 0));
     CHECK(!GetClassInfoExW(0, cls.lpszClassName, &saved) && GetLastError() == ERROR_CLASS_DOES_NOT_EXIST);
+    UINT message = RegisterWindowMessageW(L"TaskbarCreated");
+    CHECK(message >= 0xc000 && message == RegisterWindowMessageA("TaskbarCreated"));
+    UINT format = RegisterClipboardFormatA("NativePE"); WCHAR format_name[32]; char format_a[32];
+    CHECK(format >= 0xc000 && format == RegisterClipboardFormatW(L"NativePE"));
+    CHECK(GetClipboardFormatNameW(format, format_name, 32) == 8 && !lstrcmpW(format_name, L"NativePE"));
+    CHECK(GetClipboardFormatNameA(format, format_a, 32) == 8 && !lstrcmpA(format_a, "NativePE"));
+    WNDCLASSW old_class; old_class.style = 0; old_class.lpfnWndProc = proc;
+    old_class.cbClsExtra = old_class.cbWndExtra = 0; old_class.hInstance = 0;
+    old_class.hIcon = old_class.hCursor = 0; old_class.hbrBackground = 0;
+    old_class.lpszMenuName = 0; old_class.lpszClassName = L"LegacyHeadlessTest";
+    CHECK(RegisterClassW(&old_class) && GetClassInfoW(0, L"LegacyHeadlessTest", &old_class));
+    CHECK(old_class.lpfnWndProc == proc && UnregisterClassW(L"LegacyHeadlessTest", 0));
     /* Hold a DC and a selected object across several table doublings. */
     dc = CreateCompatibleDC(0); brush = CreateSolidBrush(0x123456);
     old = SelectObject(dc, brush); CHECK(old);
