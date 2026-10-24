@@ -18,6 +18,11 @@ check_pe() {
     shift 3
     "$@" > "$work/stdout" 2> "$work/stderr"
     status=$?
+    if [[ $status == 126 ]]; then
+        printf 'FAIL %s: exit 126; native PE handler unavailable. Stop and load binfmt_pe.\n' "$label"
+        cat "$work/stderr"
+        exit 1
+    fi
     printf '%s\n' "$expected_text" > "$work/expected"
     tr -d '\r' < "$work/stdout" > "$work/actual"
     if [[ $status == "$expected_status" ]] && cmp -s "$work/expected" "$work/actual"; then

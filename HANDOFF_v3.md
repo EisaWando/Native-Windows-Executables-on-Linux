@@ -25,7 +25,7 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 2. Environment and commands
 
-- Workspace: `/home/eisa/Desktop/linux-7.1.6` (kernel source tree used as the build workspace). Running kernel: `7.2.11-1-cachyos` (clang-built, so **`LLVM=1`** is required). The module is built against the running kernel's headers.
+- Workspace: `/home/eisa/Desktop/linux-7.1.6` (kernel source tree used as the build workspace). Running kernel: `7.3.0-2-cachyos` (clang-built, so **`LLVM=1`** is required). The module is built against the running kernel's headers.
 - Module: `make LLVM=1 -C /lib/modules/$(uname -r)/build M=$PWD/fs modules`
 - Bridge build (exact flags; keep them):
   ```
@@ -56,6 +56,7 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 GetStdHandle, WriteFile, ExitProcess, GetSystemTimeAsFileTime, QueryPerformanceCounter/Frequency, GetCurrentProcessId, GetCurrentThreadId, SetLastError/GetLastError (`%gs:0x68`), LoadLibraryExW, GetModuleHandleW, GetProcAddress, InitializeCriticalSection / ...AndSpinCount / ...Ex, Enter/TryEnter/Leave/DeleteCriticalSection, TlsAlloc/Free/GetValue/SetValue and FlsAlloc/Free/GetValue/SetValue (shared single-thread slot arrays), VirtualProtect (mprotect; old protection reported as `PAGE_READWRITE`, an approximation), GetProcessHeap, HeapCreate, HeapDestroy, HeapAlloc, HeapFree, HeapSize, HeapReAlloc, HeapSetInformation. Helpers: `raw_syscall3/6`, `memset/memcpy/memmove/memcmp`, `raw_puts`, `raw_hex`.
 
 ### Design decisions already made (keep unless you have a reason)
+- **Paths (2026-10-24):** Linux `/` is exposed as `Z:\`, separators become backslashes and case is preserved; no C: alias or configurable root yet. GetModuleFileNameW/A reads `/proc/self/exe`, GetCurrentDirectoryW/A reads getcwd. Future file APIs must reverse this mapping and reject unsupported drive letters. Environment remains intentionally empty.
 - **File/std handles (2026-10-24):** `pe_fd_to_handle(fd)` encodes `0x40 + fd*4`; `pe_handle_to_fd(h)` validates alignment, descriptor range (<2^20), and liveness with F_GETFD. Standard handles are 0x40/0x44/0x48. Invalid file handles set error 6. No generation tracking yet; descriptor reuse can reuse a handle. This is separate from module, heap and pseudo handles.
 - **Regression fixtures:** run `bash tests/run_all.sh`; all fixtures build from tracked sources, including `tests/hello42.c` as temporary `./hello.exe`. Owner-deleted root files remain deleted. Built test binaries are ignored.
 - **Modules:** a small built-in registry maps names `kernel32(.dll)`, `kernelbase(.dll)`, `ntdll(.dll)` and any `api-ms-win-*` name to fake `HMODULE`s `0x6ff00000 + index*0x10000`. `LoadLibraryExW` of an unknown DLL → NULL + last error 126. `GetModuleHandleW(NULL)` → `0x140000000`.
@@ -65,7 +66,9 @@ GetStdHandle, WriteFile, ExitProcess, GetSystemTimeAsFileTime, QueryPerformanceC
 - Approximations to revisit: VirtualProtect old protection, static command line `notepad++.exe`, empty environment block (if Task 8 was applied), no per-thread TLS block.
 
 ### Latest confirmed Notepad++ result
-`imports: resolved 32, unimplemented 588`, then `CALLED UNIMPLEMENTED: KERNEL32.dll!GetStartupInfoW ret=0x14041a20a`. The CRT startup batch ("Batch A" below) was handed to the previous agent; **it may or may not be applied. Check `git status`, `git diff`, and `grep -n GetStartupInfoW win32_bridge.c` first.** Optional heap regression test `tests/heap.c` (64 mixed allocs, zero-flag checks, frees, HeapReAlloc growth with zeroed extension, one 300000-byte block; prints `heap ok` and exits 0) may or may not exist; create it if missing.
+2026-10-24: Batch A is present. Three Batch B rounds completed (9 + 8 + 8 shims): descriptor type/code pages/timing, real UTF-8/UTF-16 conversion, and module/current-directory paths/environment/debug output. `tests/run_all.sh` builds all test PEs and passes hello (0), temporary ./hello.exe (42), heap (0), and utf (0). The utf fixture also checks opaque handles, malformed conversion input, buffer sizing, and paths.
+
+Latest Notepad++: exit 127 at `KERNEL32.dll!RtlPcToFileHeader`, return `0x1403ddfcd`, rcx `0x14055de98`. Disassembly around `0x1403ddf94` stores MSVC exception magic `0x19930520` before this call: stopped at the Batch C exception-handling boundary, before implementing unwind support. This suggests exception record construction; it does not establish the cause of the exception. No kernel changes or reloads were needed. Keep the module loaded and rebuild only the bridge for userland changes.
 
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, VERSION 3, SensApi 2, OLEAUT32 2, dwmapi 2, COMDLG32 2, WINTRUST 1, WININET 1, MSIMG32 1, dbghelp 1.

@@ -948,6 +948,86 @@ __attribute__((ms_abi)) BOOL AreFileApisANSI(void) { return 1; }
 __attribute__((ms_abi)) DWORD GetConsoleCP(void) { return 65001; }
 __attribute__((ms_abi)) DWORD GetConsoleOutputCP(void) { return 65001; }
 
+/* Z:\ maps Linux /, case preserved. Other drive letters are unsupported. */
+static int pe_windows_path(char *out, int cap, int cwd)
+{
+    char path[4096];
+    long n = cwd ? raw_syscall3(SYS_getcwd, (long)path, sizeof(path), 0) :
+        raw_syscall3(SYS_readlink, (long)"/proc/self/exe", (long)path, sizeof(path)-1);
+    if (n < 0 || n >= (long)sizeof(path)) { SetLastError(3); return 0; }
+    if (cwd) n--; /* getcwd includes NUL */
+    if (n + 3 > cap) { SetLastError(122); return 0; }
+    out[0] = 'Z'; out[1] = ':';
+    for (int i = 0; i < n; i++) out[i+2] = path[i] == '/' ? '\\' : path[i];
+    out[n+2] = 0;
+    return n+2;
+}
+__attribute__((ms_abi)) DWORD GetModuleFileNameW(void *module, uint16_t *out, DWORD cap)
+{
+    char path[4100]; uint16_t wide[4100];
+    if (module && module != (void *)0x140000000ULL) { SetLastError(126); return 0; }
+    if (!out || !cap) { SetLastError(122); return 0; }
+    if (!pe_windows_path(path, sizeof(path), 0)) return 0;
+    int n = MultiByteToWideChar(65001, 8, path, -1, wide, 4100);
+    if (!n) return 0;
+    DWORD copy = (DWORD)n <= cap ? n : cap;
+    memcpy(out, wide, copy * 2);
+    if ((DWORD)n > cap) { out[cap-1] = 0; SetLastError(122); return cap; }
+    return n-1;
+}
+__attribute__((ms_abi)) DWORD GetModuleFileNameA(void *module, char *out, DWORD cap)
+{
+    char path[4100];
+    if (module && module != (void *)0x140000000ULL) { SetLastError(126); return 0; }
+    if (!out || !cap) { SetLastError(122); return 0; }
+    int n = pe_windows_path(path, sizeof(path), 0);
+    if (!n) return 0;
+    DWORD copy = (DWORD)n+1 <= cap ? n+1 : cap;
+    memcpy(out, path, copy);
+    if ((DWORD)n >= cap) { out[cap-1] = 0; SetLastError(122); return cap; }
+    return n;
+}
+__attribute__((ms_abi)) DWORD GetCurrentDirectoryW(DWORD cap, uint16_t *out)
+{
+    char path[4100]; uint16_t wide[4100];
+    if (!pe_windows_path(path, sizeof(path), 1)) return 0;
+    int n = MultiByteToWideChar(65001, 8, path, -1, wide, 4100);
+    if (!n) return 0;
+    if ((DWORD)n > cap) return n;
+    if (!out) { SetLastError(87); return 0; }
+    memcpy(out, wide, n*2); return n-1;
+}
+__attribute__((ms_abi)) DWORD GetCurrentDirectoryA(DWORD cap, char *out)
+{
+    char path[4100]; int n = pe_windows_path(path, sizeof(path), 1);
+    if (!n) return 0;
+    if ((DWORD)n >= cap) return n+1;
+    if (!out) { SetLastError(87); return 0; }
+    memcpy(out, path, n+1); return n;
+}
+/* Consistent with the intentionally empty environment block in Batch A. */
+__attribute__((ms_abi)) DWORD GetEnvironmentVariableW(const uint16_t *name, uint16_t *out, DWORD cap)
+{
+    (void)out; (void)cap;
+    SetLastError(!name || !*name ? 87 : 203); return 0;
+}
+__attribute__((ms_abi)) DWORD ExpandEnvironmentStringsW(const uint16_t *src, uint16_t *out, DWORD cap)
+{
+    if (!src || (cap && !out)) { SetLastError(87); return 0; }
+    DWORD n = lstrlenW(src)+1;
+    if (cap >= n) memmove(out, src, n*2);
+    return n; /* unknown variables remain unchanged */
+}
+__attribute__((ms_abi)) void OutputDebugStringA(const char *s)
+{ if (s) { raw_puts("[BRIDGE] debug: "); raw_puts(s); raw_puts("\n"); } }
+__attribute__((ms_abi)) void OutputDebugStringW(const uint16_t *s)
+{
+    char buf[1024];
+    if (!s) return;
+    int n = WideCharToMultiByte(65001, 0, s, -1, 0, 0, 0, 0);
+    if (n > 0 && n <= (int)sizeof(buf) && WideCharToMultiByte(65001, 0, s, -1, buf, sizeof(buf), 0, 0)) OutputDebugStringA(buf);
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
@@ -968,6 +1048,14 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "AreFileApisANSI")) return AreFileApisANSI;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleCP")) return GetConsoleCP;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleOutputCP")) return GetConsoleOutputCP;
+    if (!by_ordinal && ascii_equal_ci(function, "GetModuleFileNameW")) return GetModuleFileNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetModuleFileNameA")) return GetModuleFileNameA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCurrentDirectoryW")) return GetCurrentDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCurrentDirectoryA")) return GetCurrentDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetEnvironmentVariableW")) return GetEnvironmentVariableW;
+    if (!by_ordinal && ascii_equal_ci(function, "ExpandEnvironmentStringsW")) return ExpandEnvironmentStringsW;
+    if (!by_ordinal && ascii_equal_ci(function, "OutputDebugStringA")) return OutputDebugStringA;
+    if (!by_ordinal && ascii_equal_ci(function, "OutputDebugStringW")) return OutputDebugStringW;
 	(void)dll;
 	if (!by_ordinal && ascii_equal_ci(function, "GetStdHandle"))
 		return GetStdHandle;
