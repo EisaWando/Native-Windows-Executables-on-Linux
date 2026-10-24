@@ -95,6 +95,43 @@ static long raw_syscall3(long number, long arg1, long arg2, long arg3)
 	return result;
 }
 
+/* One short-held recursive bridge lock; never held across PE callbacks or waits.
+ * Recursion permits helpers (GUI -> stock object -> heap) to share the guard. */
+static uint32_t pe_state_owner, pe_state_depth;
+static bool pe_state_enter(void)
+{
+    uint32_t tid = raw_syscall3(SYS_gettid, 0, 0, 0);
+    if (__atomic_load_n(&pe_state_owner, __ATOMIC_RELAXED) == tid) { pe_state_depth++; return true; }
+    for (;;) {
+        for (unsigned spin = 0; spin < 128; spin++) {
+            uint32_t expected = 0;
+            if (__atomic_compare_exchange_n(&pe_state_owner, &expected, tid, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                pe_state_depth = 1; return true;
+            }
+            __asm__ volatile ("pause");
+        }
+        uint32_t owner = __atomic_load_n(&pe_state_owner, __ATOMIC_RELAXED);
+        if (owner && raw_syscall6(SYS_futex, (long)&pe_state_owner, 128, owner, 0, 0, 0) < 0)
+            raw_syscall3(SYS_sched_yield, 0, 0, 0); /* spin/yield fallback if futex denied */
+    }
+}
+static void pe_state_leave(bool *held)
+{
+    if (!*held) return;
+    *held = false;
+    if (--pe_state_depth) return;
+    __atomic_store_n(&pe_state_owner, 0, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)&pe_state_owner, 129, 1, 0, 0, 0);
+}
+#define PE_STATE_GUARD bool pe_guard __attribute__((cleanup(pe_state_leave))) = pe_state_enter()
+static uintptr_t pe_current_teb(void)
+{ uintptr_t p; __asm__ volatile ("mov %%gs:0x30,%0" : "=r"(p)); return p; }
+static void *pe_raw_map(size_t bytes)
+{
+    long p = raw_syscall6(SYS_mmap, 0, bytes, 3, 0x22, -1, 0);
+    return (unsigned long)p >= (unsigned long)-4095 ? NULL : (void *)p;
+}
+
 static void raw_write(const char *buffer, size_t length)
 {
 	while (length) {
@@ -436,7 +473,7 @@ static bool is_fake_module_handle(void *handle)
 
 __attribute__((ms_abi))
 void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
-{
+{ PE_STATE_GUARD;
 	void *h;
 	(void)file;
 	(void)flags;
@@ -452,7 +489,7 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 
 __attribute__((ms_abi))
 void *GetModuleHandleW(const uint16_t *name)
-{
+{ PE_STATE_GUARD;
 	void *h;
 	if (!name)
 		return (void *)0x140000000ULL; /* ImageBase */
@@ -468,7 +505,7 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 
 __attribute__((ms_abi))
 void *GetProcAddress(void *m, const char *proc)
-{
+{ PE_STATE_GUARD;
 	void *fn;
 
 	if ((uintptr_t)proc < 0x10000) {
@@ -702,36 +739,150 @@ static void pe_cs_init(struct pe_crit_sec *cs, uint64_t spin)
 __attribute__((ms_abi)) void InitializeCriticalSection(struct pe_crit_sec *cs)          { pe_cs_init(cs, 0); }
 __attribute__((ms_abi)) int  InitializeCriticalSectionAndSpinCount(struct pe_crit_sec *cs, uint32_t spin) { pe_cs_init(cs, spin); return 1; }
 __attribute__((ms_abi)) int  InitializeCriticalSectionEx(struct pe_crit_sec *cs, uint32_t spin, uint32_t flags) { (void)flags; pe_cs_init(cs, spin); return 1; }
-__attribute__((ms_abi)) void EnterCriticalSection(struct pe_crit_sec *cs)    { cs->LockCount++; cs->RecursionCount++; }
-__attribute__((ms_abi)) int  TryEnterCriticalSection(struct pe_crit_sec *cs) { cs->LockCount++; cs->RecursionCount++; return 1; }
-__attribute__((ms_abi)) void LeaveCriticalSection(struct pe_crit_sec *cs)    { cs->RecursionCount--; cs->LockCount--; }
-__attribute__((ms_abi)) void DeleteCriticalSection(struct pe_crit_sec *cs)   { cs->LockCount = -1; cs->RecursionCount = 0; }
-
-#define PE_TLS_MAX 1088
-static uint64_t pe_tls_slots[PE_TLS_MAX];
-static uint8_t  pe_tls_used[PE_TLS_MAX];
-static uint32_t pe_slot_alloc(void)
+__attribute__((ms_abi)) void EnterCriticalSection(struct pe_crit_sec *cs)
 {
-    uint32_t i;
-    for (i = 0; i < PE_TLS_MAX; i++) {
-        if (!pe_tls_used[i]) {
-            pe_tls_used[i] = 1;
-            pe_tls_slots[i] = 0;
-            return i;
-        }
+    uintptr_t tid = raw_syscall3(SYS_gettid, 0, 0, 0);
+    __atomic_add_fetch(&cs->LockCount, 1, __ATOMIC_RELAXED);
+    if (__atomic_load_n(&cs->OwningThread, __ATOMIC_ACQUIRE) == (void *)tid) { cs->RecursionCount++; return; }
+    for (;;) {
+        void *expected = NULL;
+        if (__atomic_compare_exchange_n(&cs->OwningThread, &expected, (void *)tid, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
+        raw_syscall6(SYS_futex, (long)&cs->OwningThread, 128, (uint32_t)(uintptr_t)expected, 0, 0, 0);
     }
-    return 0xFFFFFFFFu;
+    cs->RecursionCount = 1;
 }
+__attribute__((ms_abi)) BOOL TryEnterCriticalSection(struct pe_crit_sec *cs)
+{
+    uintptr_t tid = raw_syscall3(SYS_gettid, 0, 0, 0);
+    void *expected = NULL;
+    if (__atomic_load_n(&cs->OwningThread, __ATOMIC_ACQUIRE) != (void *)tid &&
+        !__atomic_compare_exchange_n(&cs->OwningThread, &expected, (void *)tid, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return 0;
+    __atomic_add_fetch(&cs->LockCount, 1, __ATOMIC_RELAXED); cs->RecursionCount++; return 1;
+}
+__attribute__((ms_abi)) void LeaveCriticalSection(struct pe_crit_sec *cs)
+{
+    if (__atomic_load_n(&cs->OwningThread, __ATOMIC_RELAXED) != (void *)(uintptr_t)raw_syscall3(SYS_gettid, 0, 0, 0)) { SetLastError(288); return; }
+    __atomic_sub_fetch(&cs->LockCount, 1, __ATOMIC_RELAXED);
+    if (--cs->RecursionCount) return;
+    __atomic_store_n(&cs->OwningThread, NULL, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)&cs->OwningThread, 129, 1, 0, 0, 0);
+}
+__attribute__((ms_abi)) void DeleteCriticalSection(struct pe_crit_sec *cs)
+{ if (cs->OwningThread) { SetLastError(170); return; } pe_cs_init(cs, 0); }
 
-__attribute__((ms_abi)) uint32_t TlsAlloc(void)                 { uint32_t i = pe_slot_alloc(); if (i == 0xFFFFFFFFu) SetLastError(8); return i; }
-__attribute__((ms_abi)) int      TlsFree(uint32_t i)            { if (i >= PE_TLS_MAX || !pe_tls_used[i]) { SetLastError(87); return 0; } pe_tls_used[i] = 0; return 1; }
-__attribute__((ms_abi)) void    *TlsGetValue(uint32_t i)        { if (i >= PE_TLS_MAX || !pe_tls_used[i]) { SetLastError(87); return 0; } SetLastError(0); return (void *)pe_tls_slots[i]; }
-__attribute__((ms_abi)) int      TlsSetValue(uint32_t i, void *v){ if (i >= PE_TLS_MAX || !pe_tls_used[i]) { SetLastError(87); return 0; } pe_tls_slots[i] = (uint64_t)v; return 1; }
-/* Fls* share the same slot arrays (callback ignored for now): */
-__attribute__((ms_abi)) uint32_t FlsAlloc(void *callback)       { (void)callback; return TlsAlloc(); }
-__attribute__((ms_abi)) int      FlsFree(uint32_t i)            { return TlsFree(i); }
-__attribute__((ms_abi)) void    *FlsGetValue(uint32_t i)        { return TlsGetValue(i); }
-__attribute__((ms_abi)) int      FlsSetValue(uint32_t i, void *v){ return TlsSetValue(i, v); }
+#define PE_TLS_MAX 64
+#define PE_FLS_MAX 128
+static uint8_t pe_tls_used[PE_TLS_MAX], pe_fls_used[PE_FLS_MAX];
+static uint32_t pe_tls_generation[PE_TLS_MAX], pe_fls_generation[PE_FLS_MAX];
+typedef void (__attribute__((ms_abi)) *pe_fls_callback)(void *);
+static pe_fls_callback pe_fls_callbacks[PE_FLS_MAX];
+struct pe_fls_data {
+    void *values[PE_FLS_MAX]; uint32_t generation[PE_FLS_MAX];
+    struct pe_fls_data *next;
+};
+static struct pe_fls_data *pe_all_fls;
+static struct pe_fls_data *pe_current_fls(void)
+{ return *(struct pe_fls_data **)(pe_current_teb()+0x17c8); }
+static bool pe_init_fls(uintptr_t teb)
+{
+    struct pe_fls_data *f = pe_raw_map(sizeof(*f)); if (!f) return false;
+    PE_STATE_GUARD;
+    f->next = pe_all_fls; pe_all_fls = f;
+    *(struct pe_fls_data **)(teb+0x17c8) = f; return true;
+}
+__attribute__((ms_abi)) uint32_t TlsAlloc(void)
+{
+    PE_STATE_GUARD;
+    for (unsigned i = 0; i < PE_TLS_MAX; i++) if (!pe_tls_used[i]) {
+        pe_tls_used[i] = 1; pe_tls_generation[i]++;
+        *(void **)(pe_current_teb()+0x1480+i*8) = NULL;
+        ((uint32_t *)(pe_current_teb()+0x1800))[i] = pe_tls_generation[i]; return i;
+    }
+    SetLastError(8); return UINT32_MAX;
+}
+__attribute__((ms_abi)) BOOL TlsFree(DWORD i)
+{
+    PE_STATE_GUARD;
+    if (i >= PE_TLS_MAX || !pe_tls_used[i]) { SetLastError(87); return 0; }
+    pe_tls_used[i] = 0; *(void **)(pe_current_teb()+0x1480+i*8) = NULL; return 1;
+}
+static bool pe_tls_validate(DWORD i)
+{
+    if (i >= PE_TLS_MAX || !pe_tls_used[i]) { SetLastError(87); return false; }
+    uint32_t *g = (uint32_t *)(pe_current_teb()+0x1800);
+    if (g[i] != pe_tls_generation[i]) { *(void **)(pe_current_teb()+0x1480+i*8) = NULL; g[i] = pe_tls_generation[i]; }
+    return true;
+}
+__attribute__((ms_abi)) void *TlsGetValue(DWORD i)
+{
+    PE_STATE_GUARD; if (!pe_tls_validate(i)) return NULL;
+    SetLastError(0); return *(void **)(pe_current_teb()+0x1480+i*8);
+}
+__attribute__((ms_abi)) BOOL TlsSetValue(DWORD i, void *v)
+{ PE_STATE_GUARD; if (!pe_tls_validate(i)) return 0; *(void **)(pe_current_teb()+0x1480+i*8) = v; return 1; }
+__attribute__((ms_abi)) DWORD FlsAlloc(pe_fls_callback callback)
+{
+    PE_STATE_GUARD;
+    for (unsigned i = 0; i < PE_FLS_MAX; i++) if (!pe_fls_used[i]) {
+        pe_fls_used[i] = 1; pe_fls_generation[i]++; pe_fls_callbacks[i] = callback; return i;
+    }
+    SetLastError(8); return UINT32_MAX;
+}
+static bool pe_fls_validate(DWORD i, struct pe_fls_data *f)
+{
+    if (!f || i >= PE_FLS_MAX || !pe_fls_used[i]) { SetLastError(87); return false; }
+    if (f->generation[i] != pe_fls_generation[i]) { f->values[i] = NULL; f->generation[i] = pe_fls_generation[i]; }
+    return true;
+}
+__attribute__((ms_abi)) void *FlsGetValue(DWORD i)
+{
+    PE_STATE_GUARD; struct pe_fls_data *f = pe_current_fls();
+    if (!pe_fls_validate(i, f)) return NULL; SetLastError(0); return f->values[i];
+}
+__attribute__((ms_abi)) BOOL FlsSetValue(DWORD i, void *v)
+{
+    PE_STATE_GUARD; struct pe_fls_data *f = pe_current_fls();
+    if (!pe_fls_validate(i, f)) return 0; f->values[i] = v; return 1;
+}
+__attribute__((ms_abi)) BOOL FlsFree(DWORD i)
+{
+    PE_STATE_GUARD;
+    if (i >= PE_FLS_MAX || !pe_fls_used[i]) { SetLastError(87); return 0; }
+    unsigned n = 0;
+    for (struct pe_fls_data *f = pe_all_fls; f; f = f->next) n++;
+    void **values = pe_raw_map((n ? n : 1)*sizeof(void *));
+    if (!values) { SetLastError(8); return 0; }
+    pe_fls_callback cb = pe_fls_callbacks[i]; unsigned k = 0;
+    for (struct pe_fls_data *f = pe_all_fls; f; f = f->next) {
+        if (f->generation[i] == pe_fls_generation[i]) { values[k++] = f->values[i]; f->values[i] = NULL; }
+    }
+    pe_fls_used[i] = 0; pe_fls_callbacks[i] = NULL;
+    pe_state_leave(&pe_guard);
+    if (cb) for (unsigned j = 0; j < k; j++) if (values[j]) cb(values[j]);
+    raw_syscall3(SYS_munmap, (long)values, (n ? n : 1)*sizeof(void *), 0); return 1;
+}
+static void pe_fls_destruct(void)
+{
+    struct pe_fls_data *f = pe_current_fls(); if (!f) return;
+    /* Destructors may repopulate slots; bound reentrant destructor passes. */
+    for (unsigned pass = 0; pass < 4; pass++) {
+        bool called = false;
+        for (unsigned i = 0; i < PE_FLS_MAX; i++) {
+            pe_fls_callback cb = NULL; void *value = NULL;
+            { PE_STATE_GUARD;
+              if (pe_fls_used[i] && f->generation[i] == pe_fls_generation[i] && f->values[i]) {
+                  cb = pe_fls_callbacks[i]; value = f->values[i]; f->values[i] = NULL;
+              }
+            }
+            if (cb) { called = true; cb(value); }
+        }
+        if (!called) break;
+    }
+    PE_STATE_GUARD;
+    struct pe_fls_data **p = &pe_all_fls;
+    while (*p && *p != f) p = &(*p)->next;
+    if (*p) *p = f->next;
+}
 
 __attribute__((ms_abi))
 int VirtualProtect(void *addr, uint64_t size, uint32_t new_prot, uint32_t *old_prot)
@@ -825,7 +976,7 @@ static long pe_mmap_rw(uint64_t len)
 static int pe_class(uint64_t n) { int c = 4; while ((1ULL << c) < n) c++; return c; }
 
 static void *pe_heap_alloc(uint64_t req, uint32_t flags)
-{
+{ PE_STATE_GUARD;
     struct pe_blk *b; uint64_t usable; int c;
     if (req > PE_HEAP_LARGE) {
         uint64_t total = (req + 16 + 0xfff) & ~0xfffULL;
@@ -854,7 +1005,7 @@ static void *pe_heap_alloc(uint64_t req, uint32_t flags)
     return b + 1;
 }
 static void pe_heap_free(void *p)
-{
+{ PE_STATE_GUARD;
     struct pe_blk *b; int c;
     if (!p) return;
     b = (struct pe_blk *)p - 1;
@@ -871,9 +1022,9 @@ __attribute__((ms_abi)) void *HeapAlloc(void *h, uint32_t flags, uint64_t size)
 { void *p; (void)h; p = pe_heap_alloc(size, flags); if (!p) SetLastError(8); return p; }
 __attribute__((ms_abi)) int   HeapFree(void *h, uint32_t flags, void *p) { (void)h; (void)flags; pe_heap_free(p); return 1; }
 __attribute__((ms_abi)) uint64_t HeapSize(void *h, uint32_t flags, void *p)
-{ (void)h; (void)flags; if (!p) return (uint64_t)-1; return ((struct pe_blk *)p - 1)->req; }
+{ PE_STATE_GUARD; (void)h; (void)flags; if (!p) return (uint64_t)-1; return ((struct pe_blk *)p - 1)->req; }
 __attribute__((ms_abi)) void *HeapReAlloc(void *h, uint32_t flags, void *p, uint64_t size)
-{
+{ PE_STATE_GUARD;
     struct pe_blk *b; void *n; uint64_t old; (void)h;
     if (!p) return 0;
     b = (struct pe_blk *)p - 1; old = b->req;
@@ -897,7 +1048,7 @@ __attribute__((ms_abi)) int IsProcessorFeaturePresent(uint32_t f)
 { switch (f) { case 2: case 3: case 6: case 10: case 12: case 13: case 14: return 1; default: return 0; } }
 __attribute__((ms_abi)) int IsDebuggerPresent(void) { return 0; }
 static void *pe_unhandled_filter;
-__attribute__((ms_abi)) void *SetUnhandledExceptionFilter(void *f) { void *old = pe_unhandled_filter; pe_unhandled_filter = f; return old; }
+__attribute__((ms_abi)) void *SetUnhandledExceptionFilter(void *f) { PE_STATE_GUARD; void *old = pe_unhandled_filter; pe_unhandled_filter = f; return old; }
 __attribute__((ms_abi)) int32_t UnhandledExceptionFilter(void *info) { (void)info; return 0; }
 __attribute__((ms_abi)) void *EncodePointer(void *p) { return p; }
 __attribute__((ms_abi)) void *DecodePointer(void *p) { return p; }
@@ -1233,18 +1384,18 @@ static void pe_default_font(struct pe_logfont *font)
     for (int i = 0; name[i]; i++) font->face[i] = name[i];
 }
 __attribute__((ms_abi)) HANDLE CreateSolidBrush(DWORD color)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_new(PE_GDI_BRUSH); if (!o) return NULL;
     o->u.brush.color = color & 0xffffff; return pe_gui_handle(o);
 }
 __attribute__((ms_abi)) HANDLE CreatePen(int style, int width, DWORD color)
-{
+{ PE_STATE_GUARD;
     if (style < 0 || style > 6 || width == INT32_MIN) { SetLastError(87); return NULL; }
     struct pe_gui_object *o = pe_gui_new(PE_GDI_PEN); if (!o) return NULL;
     o->u.pen = (struct pe_logpen){style, width < 0 ? -width : width, 0, color & 0xffffff}; return pe_gui_handle(o);
 }
 __attribute__((ms_abi)) HANDLE CreateFontIndirectW(const struct pe_logfont *font)
-{
+{ PE_STATE_GUARD;
     if (!font) { SetLastError(87); return NULL; }
     struct pe_gui_object *o = pe_gui_new(PE_GDI_FONT); if (!o) return NULL;
     o->u.font = *font; o->u.font.face[31] = 0; return pe_gui_handle(o);
@@ -1252,14 +1403,14 @@ __attribute__((ms_abi)) HANDLE CreateFontIndirectW(const struct pe_logfont *font
 __attribute__((ms_abi)) HANDLE CreateFontW(int height, int width, int escape, int orient, int weight,
     DWORD italic, DWORD underline, DWORD strike, DWORD charset, DWORD outprec,
     DWORD clipprec, DWORD quality, DWORD pitch, const uint16_t *face)
-{
+{ PE_STATE_GUARD;
     struct pe_logfont f = {height, width, escape, orient, weight,
         italic, underline, strike, charset, outprec, clipprec, quality, pitch, {0}};
     if (face) for (unsigned i = 0; i < 31 && face[i]; i++) f.face[i] = face[i];
     return CreateFontIndirectW(&f);
 }
 __attribute__((ms_abi)) HANDLE GetStockObject(int id)
-{
+{ PE_STATE_GUARD;
     if (id < 0 || id >= 20 || id == 9) { SetLastError(87); return NULL; }
     if (pe_stocks[id]) return pe_stocks[id];
     HANDLE h = NULL;
@@ -1295,9 +1446,9 @@ static HANDLE pe_new_dc(unsigned type, HANDLE owner)
     return h;
 }
 __attribute__((ms_abi)) HANDLE CreateCompatibleDC(HANDLE source)
-{ if (source && !pe_dc_lookup(source)) return NULL; return pe_new_dc(PE_GDI_MEMDC, NULL); }
+{ PE_STATE_GUARD; if (source && !pe_dc_lookup(source)) return NULL; return pe_new_dc(PE_GDI_MEMDC, NULL); }
 __attribute__((ms_abi)) BOOL DeleteObject(HANDLE h)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, 0); if (!o) return 0;
     if (o->type != PE_GDI_PEN && o->type != PE_GDI_BRUSH && o->type != PE_GDI_FONT &&
         o->type != PE_GDI_BITMAP && o->type != PE_GDI_PALETTE && o->type != PE_GDI_REGION) { SetLastError(6); return 0; }
@@ -1319,9 +1470,9 @@ static void pe_drop_dc(struct pe_gui_object *o)
     pe_gui_drop(o);
 }
 __attribute__((ms_abi)) BOOL DeleteDC(HANDLE h)
-{ struct pe_gui_object *o = pe_gui_lookup(h, PE_GDI_MEMDC); if (!o) return 0; pe_drop_dc(o); return 1; }
+{ PE_STATE_GUARD; struct pe_gui_object *o = pe_gui_lookup(h, PE_GDI_MEMDC); if (!o) return 0; pe_drop_dc(o); return 1; }
 __attribute__((ms_abi)) HANDLE SelectObject(HANDLE dc, HANDLE h)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *d = pe_dc_lookup(dc), *o = pe_gui_lookup(h, 0);
     if (!d || !o) return NULL;
     HANDLE *slot;
@@ -1338,11 +1489,11 @@ __attribute__((ms_abi)) HANDLE SelectObject(HANDLE dc, HANDLE h)
     pe_gui_lookup(old, 0)->selected--; *slot = h; o->selected++; return old;
 }
 __attribute__((ms_abi)) DWORD GetObjectType(HANDLE h)
-{ struct pe_gui_object *o = pe_gui_lookup(h, 0);
+{ PE_STATE_GUARD; struct pe_gui_object *o = pe_gui_lookup(h, 0);
     if (!o || o->type > 14) { SetLastError(6); return 0; }
     return o->type; }
 __attribute__((ms_abi)) HANDLE GetCurrentObject(HANDLE dc, unsigned type)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *d = pe_dc_lookup(dc); if (!d) return NULL;
     switch (type) {
     case PE_GDI_PEN: return d->u.dc.pen; case PE_GDI_BRUSH: return d->u.dc.brush;
@@ -1351,7 +1502,7 @@ __attribute__((ms_abi)) HANDLE GetCurrentObject(HANDLE dc, unsigned type)
     }
 }
 __attribute__((ms_abi)) int GetObjectW(HANDLE h, int bytes, void *out)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, 0); if (!o) return 0;
     const void *src; unsigned size;
     static const uint16_t palette_entries = 20;
@@ -1369,7 +1520,7 @@ __attribute__((ms_abi)) int GetObjectW(HANDLE h, int bytes, void *out)
     memcpy(out, src, size); return size;
 }
 __attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
-{
+{ PE_STATE_GUARD;
     if (!pe_dc_lookup(dc)) return 0;
     switch (index) {
     case 0: return 0x100; case 2: return 1; /* version, raster display */
@@ -1383,12 +1534,12 @@ __attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
 
 /* Read-only headless desktop profile. No HWND is manufactured here. */
 __attribute__((ms_abi)) HANDLE GetDC(HANDLE window)
-{
+{ PE_STATE_GUARD;
     if (window && !pe_gui_lookup(window, PE_GUI_WINDOW)) return NULL;
     return pe_new_dc(PE_GDI_DC, window);
 }
 __attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(dc, PE_GDI_DC);
     if (!o) return 0;
     if (o->u.dc.owner != window) { SetLastError(6); return 0; }
@@ -1506,7 +1657,7 @@ static bool pe_name_equal(const uint16_t *a, const uint16_t *b)
     return true;
 }
 __attribute__((ms_abi)) uint16_t RegisterClassExW(const struct pe_wndclassex *c)
-{
+{ PE_STATE_GUARD;
     if (!c || c->size != sizeof(*c) || (uintptr_t)c->class_name < 65536 || !*c->class_name || !c->wndproc ||
         c->class_extra < 0 || c->window_extra < 0 || c->class_extra > 4096 || c->window_extra > 4096) { SetLastError(87); return 0; }
     if (!pe_gui_classes) pe_gui_classes = (void *)pe_mmap_rw(64*sizeof(*pe_gui_classes));
@@ -1541,19 +1692,19 @@ static struct pe_gui_class *pe_class_lookup(HANDLE instance, const uint16_t *nam
     SetLastError(1411); return NULL;
 }
 __attribute__((ms_abi)) BOOL GetClassInfoExW(HANDLE instance, const uint16_t *name, struct pe_wndclassex *out)
-{
+{ PE_STATE_GUARD;
     if (!name || !out || out->size != sizeof(*out)) { SetLastError(87); return 0; }
     struct pe_gui_class *v = pe_class_lookup(instance, name); if (!v) return 0;
     *out = v->data; return 1;
 }
 __attribute__((ms_abi)) BOOL UnregisterClassW(const uint16_t *name, HANDLE instance)
-{
+{ PE_STATE_GUARD;
     if (!name) { SetLastError(87); return 0; }
     struct pe_gui_class *v = pe_class_lookup(instance, name); if (!v) return 0;
     pe_heap_free(v->extra); memset(v, 0, sizeof(*v)); return 1;
 }
 __attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name, unsigned type, int width, int height, unsigned flags)
-{
+{ PE_STATE_GUARD;
     if (!name || type > 2 || width < 0 || width > INT32_MAX/4 || height < 0) { SetLastError(87); return NULL; }
     if (flags & 0x10) { SetLastError(50); return NULL; } /* LR_LOADFROMFILE needs actual file/resource decoding */
     unsigned tag = type == 0 ? PE_GDI_BITMAP : type == 1 ? PE_GUI_ICON : PE_GUI_CURSOR;
@@ -1577,17 +1728,17 @@ __attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name,
     return pe_gui_handle(o);
 }
 __attribute__((ms_abi)) HANDLE LoadCursorW(HANDLE instance, const uint16_t *name)
-{ return LoadImageW(instance, name, 2, 0, 0, 0x8040); }
+{ PE_STATE_GUARD; return LoadImageW(instance, name, 2, 0, 0, 0x8040); }
 __attribute__((ms_abi)) HANDLE LoadIconW(HANDLE instance, const uint16_t *name)
-{ return LoadImageW(instance, name, 1, 0, 0, 0x8040); }
+{ PE_STATE_GUARD; return LoadImageW(instance, name, 1, 0, 0, 0x8040); }
 __attribute__((ms_abi)) BOOL DestroyIcon(HANDLE h)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_ICON); if (!o) return 0;
     if (!o->shared) pe_gui_drop(o);
     return 1;
 }
 __attribute__((ms_abi)) BOOL DestroyCursor(HANDLE h)
-{
+{ PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_CURSOR); if (!o) return 0;
     if (!o->shared) pe_gui_drop(o);
     return 1;
@@ -2201,6 +2352,12 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
 #endif
 	resolve_imports(image_base, import_rva, import_size, verbose);
 	test_and_setup_teb_gs();
+    uintptr_t teb = pe_current_teb();
+    long extra = raw_syscall6(SYS_mmap, teb+0x1000, 0x1000, 3, 0x100022, -1, 0);
+    if (extra != (long)(teb+0x1000)) pe_loader_error("main TEB extension failed");
+    *(uint64_t *)(teb+0x40) = GetCurrentProcessId();
+    *(uint64_t *)(teb+0x48) = GetCurrentThreadId();
+    if (!pe_init_fls(teb)) pe_loader_error("main FLS allocation failed");
     pe_setup_image_tls(image_base);
 }
 

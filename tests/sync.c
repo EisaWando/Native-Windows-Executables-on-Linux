@@ -1,7 +1,17 @@
 #include <windows.h>
+static int fls_freed;
+static void NTAPI fls_cleanup(void *p) { if (p == (void *)123) fls_freed++; }
 void mainCRTStartup(void)
 {
     SRWLOCK lock; CONDITION_VARIABLE cv; DWORD written; int ok = 1;
+    CRITICAL_SECTION cs; InitializeCriticalSection(&cs);
+    EnterCriticalSection(&cs); ok &= TryEnterCriticalSection(&cs) && cs.RecursionCount == 2;
+    ok &= (ULONG_PTR)cs.OwningThread == GetCurrentThreadId();
+    LeaveCriticalSection(&cs); LeaveCriticalSection(&cs);
+    ok &= cs.LockCount == -1 && !cs.RecursionCount && !cs.OwningThread; DeleteCriticalSection(&cs);
+    DWORD f = FlsAlloc(fls_cleanup); ok &= f != FLS_OUT_OF_INDEXES && FlsSetValue(f, (void *)123);
+    ok &= FlsFree(f) && fls_freed == 1;
+    ok &= !TlsSetValue(64, (void *)1) && GetLastError() == ERROR_INVALID_PARAMETER;
     InitializeSRWLock(&lock); InitializeConditionVariable(&cv);
     AcquireSRWLockExclusive(&lock);
     ok &= !TryAcquireSRWLockExclusive(&lock) && !TryAcquireSRWLockShared(&lock);
