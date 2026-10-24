@@ -198,3 +198,6 @@ CS16_Setup.exe
 /tmp/
 /out.txt
 /err.txt
+npp.8.9.8.portable.x64/langs.xml
+npp.8.9.8.portable.x64/stylers.xml
+npp.8.9.8.portable.x64/shortcuts.xml
