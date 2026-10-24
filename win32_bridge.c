@@ -1593,9 +1593,92 @@ __attribute__((ms_abi)) BOOL DestroyCursor(HANDLE h)
     return 1;
 }
 
+/* Opaque SRW state: low word is -1 exclusive, >=0 shared count. Futex waits
+ * avoid pretending that contended locks succeeded. No CreateThread yet. */
+static BOOL pe_lock_pointer(void *p)
+{ if (!p || ((uintptr_t)p & 7)) { SetLastError(87); return 0; } return 1; }
+__attribute__((ms_abi)) void InitializeSRWLock(uint64_t *p)
+{ if (pe_lock_pointer(p)) __atomic_store_n(p, 0, __ATOMIC_RELEASE); }
+__attribute__((ms_abi)) BOOL TryAcquireSRWLockExclusive(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return 0;
+    int32_t expected = 0;
+    return __atomic_compare_exchange_n((int32_t *)p, &expected, -1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
+__attribute__((ms_abi)) BOOL TryAcquireSRWLockShared(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return 0;
+    int32_t v = __atomic_load_n((int32_t *)p, __ATOMIC_RELAXED);
+    while (v >= 0 && v < INT32_MAX)
+        if (__atomic_compare_exchange_n((int32_t *)p, &v, v+1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return 1;
+    return 0;
+}
+__attribute__((ms_abi)) void AcquireSRWLockExclusive(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    while (!TryAcquireSRWLockExclusive(p)) {
+        int32_t v = __atomic_load_n((int32_t *)p, __ATOMIC_RELAXED);
+        if (v) raw_syscall6(SYS_futex, (long)p, 128, v, 0, 0, 0);
+    }
+}
+__attribute__((ms_abi)) void AcquireSRWLockShared(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    while (!TryAcquireSRWLockShared(p)) raw_syscall6(SYS_futex, (long)p, 128, -1, 0, 0, 0);
+}
+__attribute__((ms_abi)) void ReleaseSRWLockExclusive(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    __atomic_store_n((int32_t *)p, 0, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)p, 129, INT32_MAX, 0, 0, 0);
+}
+__attribute__((ms_abi)) void ReleaseSRWLockShared(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    if (__atomic_sub_fetch((int32_t *)p, 1, __ATOMIC_RELEASE) == 0)
+        raw_syscall6(SYS_futex, (long)p, 129, INT32_MAX, 0, 0, 0);
+}
+__attribute__((ms_abi)) void InitializeConditionVariable(uint64_t *p)
+{ if (pe_lock_pointer(p)) __atomic_store_n(p, 0, __ATOMIC_RELEASE); }
+__attribute__((ms_abi)) void WakeConditionVariable(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    __atomic_add_fetch((uint32_t *)p, 1, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)p, 129, 1, 0, 0, 0);
+}
+__attribute__((ms_abi)) void WakeAllConditionVariable(uint64_t *p)
+{
+    if (!pe_lock_pointer(p)) return;
+    __atomic_add_fetch((uint32_t *)p, 1, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)p, 129, INT32_MAX, 0, 0, 0);
+}
+__attribute__((ms_abi)) BOOL SleepConditionVariableSRW(uint64_t *cv, uint64_t *lock, DWORD timeout, DWORD flags)
+{
+    if (!pe_lock_pointer(cv) || !pe_lock_pointer(lock) || (flags & ~1u)) { SetLastError(87); return 0; }
+    uint32_t seq = __atomic_load_n((uint32_t *)cv, __ATOMIC_ACQUIRE);
+    struct pe_timespec ts = {timeout/1000, (timeout%1000)*1000000LL};
+    if (flags & 1) ReleaseSRWLockShared(lock); else ReleaseSRWLockExclusive(lock);
+    long r = raw_syscall6(SYS_futex, (long)cv, 128, seq, timeout == UINT32_MAX ? 0 : (long)&ts, 0, 0);
+    if (flags & 1) AcquireSRWLockShared(lock); else AcquireSRWLockExclusive(lock);
+    if (r == -110) { SetLastError(1460); return 0; }
+    if (r < 0 && r != -11 && r != -4) { SetLastError(87); return 0; }
+    return 1; /* spurious/interrupted wakes are permitted */
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "InitializeSRWLock")) return InitializeSRWLock;
+    if (!by_ordinal && ascii_equal_ci(function, "TryAcquireSRWLockExclusive")) return TryAcquireSRWLockExclusive;
+    if (!by_ordinal && ascii_equal_ci(function, "TryAcquireSRWLockShared")) return TryAcquireSRWLockShared;
+    if (!by_ordinal && ascii_equal_ci(function, "AcquireSRWLockExclusive")) return AcquireSRWLockExclusive;
+    if (!by_ordinal && ascii_equal_ci(function, "AcquireSRWLockShared")) return AcquireSRWLockShared;
+    if (!by_ordinal && ascii_equal_ci(function, "ReleaseSRWLockExclusive")) return ReleaseSRWLockExclusive;
+    if (!by_ordinal && ascii_equal_ci(function, "ReleaseSRWLockShared")) return ReleaseSRWLockShared;
+    if (!by_ordinal && ascii_equal_ci(function, "InitializeConditionVariable")) return InitializeConditionVariable;
+    if (!by_ordinal && ascii_equal_ci(function, "WakeConditionVariable")) return WakeConditionVariable;
+    if (!by_ordinal && ascii_equal_ci(function, "WakeAllConditionVariable")) return WakeAllConditionVariable;
+    if (!by_ordinal && ascii_equal_ci(function, "SleepConditionVariableSRW")) return SleepConditionVariableSRW;
     if (!by_ordinal && ascii_equal_ci(function, "GetDC")) return GetDC;
     if (!by_ordinal && ascii_equal_ci(function, "ReleaseDC")) return ReleaseDC;
     if (!by_ordinal && ascii_equal_ci(function, "GetSystemMetrics")) return GetSystemMetrics;
