@@ -44,6 +44,29 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: Notepad++ continuation, round 4 (2026-10-24)
+
+bridge/security.inc implements SID allocation/free/validation/length/copy/equality,
+subauthority/count/authority access, CheckTokenMembership, OpenProcessToken,
+OpenThreadToken and read-only GetTokenInformation. Tokens use the existing typed
+handle table, close through CloseHandle and cannot be waited on. Identity is an
+explicit Linux projection: euid 0 is elevated Administrators/high integrity;
+ordinary users are non-admin/medium integrity. User SIDs use a stable emulated
+domain plus euid-derived RID. Everyone, Authenticated Users, Interactive, Local,
+Builtin Users and the current user SID are recognized; impersonation is absent,
+so OpenThreadToken returns ERROR_NO_TOKEN. Token user/owner/type/session/elevation/
+integrity and selected scalar flags are supported. Other token classes fail 50;
+this does not implement Windows ACLs, privileges or impersonation.
+
+`bash tests/run_all.sh > /tmp/npp-round4-suite.log 2>&1` -> exit 0. Security and all
+functional fixtures pass, 20/20 thread stress and both diagnostics pass; visible
+tests explicitly skipped. `git diff --check` passes. Bridge text 181340,
+bss 68336; PT_LOAD extent 256752 / 1048576. Notepad++ now exits 127 at
+WINTRUST!WinVerifyTrust ret=0x14000b051. Disassembly confirms verify then state
+close, with a nonzero-result failure branch; no trust result has been invented.
+Next batch can expose the unavailable provider as an explicit failure, then
+follow the application's fallback. No kernel changes/reload/push.
+
 ### Latest: Notepad++ continuation, round 3 (2026-10-24)
 
 bridge/directories.inc adds A/W SetCurrentDirectory, CreateDirectory,

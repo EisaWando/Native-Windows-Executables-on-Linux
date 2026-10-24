@@ -1978,7 +1978,7 @@ __attribute__((ms_abi)) uint16_t *PathRemoveBackslashW(uint16_t *p)
 
 /* Kernel-style synchronization objects, in a range separate from files/GDI. */
 struct pe_reg_node;
-enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE, PE_REGKEY };
+enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE, PE_REGKEY, PE_TOKEN };
 struct pe_thread;
 struct pe_wait_object {
     unsigned kind, refs; bool named; uint16_t name[256];
@@ -1986,6 +1986,7 @@ struct pe_wait_object {
     union {
         struct pe_thread *thread;
         struct { struct pe_reg_node *node; DWORD access; } reg;
+        struct { DWORD uid,access; } token;
         struct { bool manual, signaled; } event;
         struct { uint32_t owner, recursion; bool abandoned; } mutex;
         struct { int32_t count, max; } semaphore;
@@ -2170,7 +2171,7 @@ __attribute__((ms_abi)) DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE
     PE_STATE_GUARD;
     for (unsigned i = 0; i < count; i++) {
         objects[i] = pe_wait_lookup(handles[i], 0); if (!objects[i]) goto out;
-        if (objects[i]->kind == PE_REGKEY) { SetLastError(6); goto out; }
+        if ((objects[i]->kind == PE_REGKEY || objects[i]->kind == PE_TOKEN)) { SetLastError(6); goto out; }
         for (unsigned j = 0; j < i; j++)
             if (handles[j] == handles[i] || (all && objects[j] == objects[i])) { SetLastError(87); goto out; }
         objects[i]->refs++; pinned++;
@@ -3429,10 +3430,24 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
+#include "bridge/security.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "AllocateAndInitializeSid")) return AllocateAndInitializeSid;
+    if (!by_ordinal && ascii_equal_ci(function, "FreeSid")) return FreeSid;
+    if (!by_ordinal && ascii_equal_ci(function, "IsValidSid")) return IsValidSid;
+    if (!by_ordinal && ascii_equal_ci(function, "GetLengthSid")) return GetLengthSid;
+    if (!by_ordinal && ascii_equal_ci(function, "CopySid")) return CopySid;
+    if (!by_ordinal && ascii_equal_ci(function, "EqualSid")) return EqualSid;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSidSubAuthority")) return GetSidSubAuthority;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSidSubAuthorityCount")) return GetSidSubAuthorityCount;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSidIdentifierAuthority")) return GetSidIdentifierAuthority;
+    if (!by_ordinal && ascii_equal_ci(function, "CheckTokenMembership")) return CheckTokenMembership;
+    if (!by_ordinal && ascii_equal_ci(function, "OpenProcessToken")) return OpenProcessToken;
+    if (!by_ordinal && ascii_equal_ci(function, "OpenThreadToken")) return OpenThreadToken;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTokenInformation")) return GetTokenInformation;
     if (!by_ordinal && ascii_equal_ci(function, "MulDiv")) return MulDiv;
     if (!by_ordinal && ascii_equal_ci(function, "SetCurrentDirectoryW")) return SetCurrentDirectoryW;
     if (!by_ordinal && ascii_equal_ci(function, "SetCurrentDirectoryA")) return SetCurrentDirectoryA;
