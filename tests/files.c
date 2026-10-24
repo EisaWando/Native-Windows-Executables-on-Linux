@@ -38,6 +38,18 @@ void mainCRTStartup(void)
             for (unsigned i = 0; i < count; i++) ok &= buffer[i] == text[i];
             ok &= CloseHandle(copy);
         }
+        static WIN32_FIND_DATAW data_w; static WIN32_FIND_DATAA data_a;
+        static WCHAR pattern[256]; lstrcpyW(pattern, path); lstrcatW(pattern, L"*");
+        HANDLE search = FindFirstFileExW(pattern, FindExInfoBasic, &data_w, FindExSearchNameMatch, 0, 0);
+        int matches = 0;
+        if (search != INVALID_HANDLE_VALUE) {
+            do { matches++; ok &= data_w.nFileSizeLow == sizeof(text)-1; } while (FindNextFileW(search, &data_w));
+            ok &= matches == 2 && GetLastError() == ERROR_NO_MORE_FILES && FindClose(search);
+            ok &= !FindNextFileW(search, &data_w) && GetLastError() == ERROR_INVALID_HANDLE;
+        } else ok = 0;
+        search = FindFirstFileA(copy_a, &data_a);
+        ok &= search != INVALID_HANDLE_VALUE && data_a.nFileSizeLow == sizeof(text)-1;
+        if (search != INVALID_HANDLE_VALUE) ok &= !FindNextFileA(search, &data_a) && GetLastError() == ERROR_NO_MORE_FILES && FindClose(search);
         ok &= DeleteFileA(copy_a);
         ok &= CloseHandle(h);
         ok &= !ReadFile(h, buffer, 1, &count, 0) && GetLastError() == ERROR_INVALID_HANDLE;

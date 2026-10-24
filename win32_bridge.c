@@ -2904,9 +2904,171 @@ __attribute__((ms_abi)) BOOL TzSpecificLocalTimeToSystemTime(const struct pe_tim
     const struct pe_system_time *local, struct pe_system_time *utc)
 { return pe_system_time_zone_shift(zone, local, utc, true); }
 
+/* Directory search handles use their own range and pin records across FindClose.
+ * Potentially blocking getdents/stat calls hold only a per-search mutex. */
+struct pe_find_data_w {
+    DWORD attributes; struct pe_filetime creation, access, write;
+    DWORD size_high, size_low, reserved[2]; uint16_t name[260], alternate[14];
+};
+struct pe_find_data_a {
+    DWORD attributes; struct pe_filetime creation, access, write;
+    DWORD size_high, size_low, reserved[2]; char name[260], alternate[14];
+};
+_Static_assert(sizeof(struct pe_find_data_w) == 592, "WIN32_FIND_DATAW layout");
+_Static_assert(sizeof(struct pe_find_data_a) == 320, "WIN32_FIND_DATAA layout");
+struct pe_find_search {
+    HANDLE handle; struct pe_find_search *next; unsigned refs; uint32_t busy;
+    int fd; unsigned position, used; bool directories_only, sensitive;
+    uint16_t pattern[260]; unsigned char buffer[4096];
+};
+static struct pe_find_search *pe_find_searches;
+static unsigned pe_next_find_handle;
+static struct pe_find_search *pe_find_pin(HANDLE h)
+{
+    PE_STATE_GUARD;
+    for (struct pe_find_search *s = pe_find_searches; s; s = s->next)
+        if (s->handle == h) { s->refs++; return s; }
+    SetLastError(6); return NULL;
+}
+static void pe_find_unpin(struct pe_find_search *s)
+{
+    PE_STATE_GUARD;
+    if (!--s->refs) {
+        raw_syscall3(SYS_close, s->fd, 0, 0);
+        raw_syscall3(SYS_munmap, (long)s, sizeof(*s), 0);
+    }
+}
+static void pe_find_lock(struct pe_find_search *s)
+{
+    for (;;) {
+        uint32_t expected = 0;
+        if (__atomic_compare_exchange_n(&s->busy, &expected, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
+        raw_syscall6(SYS_futex, (long)&s->busy, 128, 1, 0, 0, 0);
+    }
+}
+static void pe_find_unlock(struct pe_find_search *s)
+{
+    __atomic_store_n(&s->busy, 0, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)&s->busy, 129, 1, 0, 0, 0);
+}
+static bool pe_find_match(const uint16_t *pattern, const uint16_t *name, bool sensitive)
+{
+    const uint16_t *star = NULL, *retry = NULL;
+    if (pattern[0] == '*' && pattern[1] == '.' && pattern[2] == '*' && !pattern[3]) pattern += 2;
+    while (*name) {
+        unsigned p = *pattern, n = *name;
+        if (!sensitive) { if (p >= 'A' && p <= 'Z') p += 32; if (n >= 'A' && n <= 'Z') n += 32; }
+        if (*pattern == '*') { star = pattern++; retry = name; }
+        else if (*pattern == '?' || p == n) { pattern++; name++; }
+        else if (star) { pattern = star+1; name = ++retry; }
+        else return false;
+    }
+    while (*pattern == '*') pattern++;
+    return !*pattern;
+}
+__attribute__((ms_abi)) BOOL FindNextFileW(HANDLE h, struct pe_find_data_w *out)
+{
+    if (!out) { SetLastError(87); return 0; }
+    struct pe_find_search *s = pe_find_pin(h); if (!s) return 0;
+    pe_find_lock(s); BOOL found = 0; DWORD error = 18;
+    for (;;) {
+        if (s->position == s->used) {
+            long n;
+            do { n = raw_syscall3(SYS_getdents64, s->fd, (long)s->buffer, sizeof(s->buffer)); } while (n == -4);
+            if (n <= 0) { if (n < 0) error = pe_file_error(n); break; }
+            s->position = 0; s->used = n;
+        }
+        /* linux_dirent64: ino64, off64, reclen16, type8, name[]. */
+        unsigned char *entry = s->buffer+s->position;
+        uint16_t record_length; memcpy(&record_length, entry+16, 2);
+        if (record_length < 20 || record_length > s->used-s->position) { error = 31; break; }
+        s->position += record_length;
+        const char *name = (const char *)entry+19;
+        bool terminated = false;
+        for (unsigned i = 0; i < record_length-19; i++) if (!name[i]) { terminated = true; break; }
+        if (!terminated) { error = 31; break; }
+        uint16_t wide[260];
+        if (!MultiByteToWideChar(65001, 8, name, -1, wide, 260) || !pe_find_match(s->pattern, wide, s->sensitive)) continue;
+        struct stat st;
+        long r = raw_syscall4(SYS_newfstatat, s->fd, (long)name, (long)&st, 0);
+        if (r < 0 || (s->directories_only && !S_ISDIR(st.st_mode))) continue;
+        memset(out, 0, sizeof(*out)); out->attributes = pe_stat_attributes(&st);
+        out->creation = pe_stat_time(st.st_ctim.tv_sec, st.st_ctim.tv_nsec);
+        out->access = pe_stat_time(st.st_atim.tv_sec, st.st_atim.tv_nsec);
+        out->write = pe_stat_time(st.st_mtim.tv_sec, st.st_mtim.tv_nsec);
+        out->size_high = (uint64_t)st.st_size >> 32; out->size_low = st.st_size;
+        memcpy(out->name, wide, (lstrlenW(wide)+1)*2); found = 1; break;
+    }
+    pe_find_unlock(s); pe_find_unpin(s);
+    if (!found) SetLastError(error); return found;
+}
+__attribute__((ms_abi)) BOOL FindClose(HANDLE h)
+{
+    PE_STATE_GUARD; struct pe_find_search **p = &pe_find_searches;
+    while (*p && (*p)->handle != h) p = &(*p)->next;
+    if (!*p) { SetLastError(6); return 0; }
+    struct pe_find_search *s = *p; *p = s->next; pe_find_unpin(s); return 1;
+}
+__attribute__((ms_abi)) HANDLE FindFirstFileExW(const uint16_t *pattern, unsigned level, struct pe_find_data_w *out,
+    unsigned operation, void *filter, DWORD flags)
+{
+    if (!out || level > 1 || operation > 1 || filter || (flags & ~7u)) { SetLastError(87); return (HANDLE)(intptr_t)-1; }
+    char path[4096]; if (!pe_linux_path(pattern, path, sizeof(path))) return (HANDLE)(intptr_t)-1;
+    char *last = NULL; for (char *p = path; *p; p++) if (*p == '/') last = p;
+    const char *directory = ".", *basename = path;
+    if (last) { basename = last+1; if (last == path) directory = "/"; else { *last = 0; directory = path; } }
+    if (!*basename) { SetLastError(123); return (HANDLE)(intptr_t)-1; }
+    struct pe_find_search *s = pe_raw_map(sizeof(*s)); if (!s) { SetLastError(8); return (HANDLE)(intptr_t)-1; }
+    if (!MultiByteToWideChar(65001, 8, basename, -1, s->pattern, 260)) { raw_syscall3(SYS_munmap, (long)s, sizeof(*s), 0); return (HANDLE)(intptr_t)-1; }
+    long fd = raw_syscall4(SYS_openat, -100, (long)directory, 0x90000, 0);
+    if (fd < 0) { raw_syscall3(SYS_munmap, (long)s, sizeof(*s), 0); SetLastError(fd == -2 ? 3 : pe_file_error(fd)); return (HANDLE)(intptr_t)-1; }
+    s->fd = fd; s->refs = 1; s->directories_only = operation == 1; s->sensitive = !!(flags & 1);
+    {
+        PE_STATE_GUARD;
+        if (pe_next_find_handle >= 0x2000000) { pe_find_unpin(s); SetLastError(8); return (HANDLE)(intptr_t)-1; }
+        s->handle = (HANDLE)(uintptr_t)(0x48000000ULL+4*pe_next_find_handle++);
+        s->next = pe_find_searches; pe_find_searches = s;
+    }
+    HANDLE h = s->handle;
+    if (FindNextFileW(h, out)) return h;
+    DWORD error = GetLastError(); FindClose(h); SetLastError(error == 18 ? 2 : error); return (HANDLE)(intptr_t)-1;
+}
+__attribute__((ms_abi)) HANDLE FindFirstFileW(const uint16_t *pattern, struct pe_find_data_w *out)
+{ return FindFirstFileExW(pattern, 0, out, 0, NULL, 0); }
+static bool pe_find_data_ansi(const struct pe_find_data_w *wide, struct pe_find_data_a *out)
+{
+    memset(out, 0, sizeof(*out)); memcpy(out, wide, 44);
+    return WideCharToMultiByte(65001, 0, wide->name, -1, out->name, 260, NULL, NULL) != 0;
+}
+__attribute__((ms_abi)) BOOL FindNextFileA(HANDLE h, struct pe_find_data_a *out)
+{
+    if (!out) { SetLastError(87); return 0; }
+    struct pe_find_data_w wide; if (!FindNextFileW(h, &wide)) return 0;
+    return pe_find_data_ansi(&wide, out);
+}
+__attribute__((ms_abi)) HANDLE FindFirstFileExA(const char *pattern, unsigned level, struct pe_find_data_a *out,
+    unsigned operation, void *filter, DWORD flags)
+{
+    if (!pattern || !out) { SetLastError(87); return (HANDLE)(intptr_t)-1; }
+    uint16_t path[4096]; struct pe_find_data_w wide;
+    if (!MultiByteToWideChar(65001, 8, pattern, -1, path, 4096)) return (HANDLE)(intptr_t)-1;
+    HANDLE h = FindFirstFileExW(path, level, &wide, operation, filter, flags);
+    if (h != (HANDLE)(intptr_t)-1 && !pe_find_data_ansi(&wide, out)) { DWORD error = GetLastError(); FindClose(h); SetLastError(error); return (HANDLE)(intptr_t)-1; }
+    return h;
+}
+__attribute__((ms_abi)) HANDLE FindFirstFileA(const char *pattern, struct pe_find_data_a *out)
+{ return FindFirstFileExA(pattern, 0, out, 0, NULL, 0); }
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileW")) return FindFirstFileW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileA")) return FindFirstFileA;
+    if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileExW")) return FindFirstFileExW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileExA")) return FindFirstFileExA;
+    if (!by_ordinal && ascii_equal_ci(function, "FindNextFileW")) return FindNextFileW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindNextFileA")) return FindNextFileA;
+    if (!by_ordinal && ascii_equal_ci(function, "FindClose")) return FindClose;
     if (!by_ordinal && ascii_equal_ci(function, "SystemTimeToTzSpecificLocalTime")) return SystemTimeToTzSpecificLocalTime;
     if (!by_ordinal && ascii_equal_ci(function, "TzSpecificLocalTimeToSystemTime")) return TzSpecificLocalTimeToSystemTime;
     if (!by_ordinal && ascii_equal_ci(function, "FileTimeToSystemTime")) return FileTimeToSystemTime;
