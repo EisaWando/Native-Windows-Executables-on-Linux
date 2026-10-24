@@ -310,6 +310,16 @@ static int pe_handle_to_fd(HANDLE handle)
     return raw_syscall3(SYS_fcntl, fd, 1 /* F_GETFD */, 0) < 0 ? -1 : fd;
 }
 
+/* Pin a file description while allowing other threads to close its HANDLE. */
+static int pe_fd_pin(HANDLE handle)
+{
+    PE_STATE_GUARD; int fd = pe_handle_to_fd(handle);
+    if (fd < 0) { SetLastError(6); return -1; }
+    long copy = raw_syscall3(SYS_fcntl, fd, 1030 /* F_DUPFD_CLOEXEC */, 0);
+    if (copy < 0) { SetLastError(copy == -9 ? 6 : 4); return -1; }
+    return copy;
+}
+
 __attribute__((ms_abi)) HANDLE GetStdHandle(DWORD which)
 {
 	switch ((int32_t)which) {
@@ -330,11 +340,12 @@ __attribute__((ms_abi)) BOOL WriteFile(HANDLE handle, const void *buffer,
 {
 	long result;
 
-	int fd = pe_handle_to_fd(handle);
+	int fd = pe_fd_pin(handle);
     if (written) *written = 0;
     if (fd < 0) { SetLastError(6); return 0; }
-    if (overlapped) { SetLastError(87); return 0; }
-    result = raw_syscall3(SYS_write, fd, (long)buffer, length);
+    if (overlapped) { raw_syscall3(SYS_close, fd, 0, 0); SetLastError(87); return 0; }
+    do { result = raw_syscall3(SYS_write, fd, (long)buffer, length); } while (result == -4);
+    raw_syscall3(SYS_close, fd, 0, 0);
     if (result < 0) SetLastError(result == -9 ? 6 : result == -14 ? 998 : 5);
 	if (written)
 		*written = result > 0 ? (DWORD)result : 0;
@@ -844,12 +855,14 @@ static bool pe_fls_validate(DWORD i, struct pe_fls_data *f)
 __attribute__((ms_abi)) void *FlsGetValue(DWORD i)
 {
     PE_STATE_GUARD; struct pe_fls_data *f = pe_current_fls();
-    if (!pe_fls_validate(i, f)) return NULL; SetLastError(0); return f->values[i];
+    if (!pe_fls_validate(i, f)) return NULL;
+    SetLastError(0); return f->values[i];
 }
 __attribute__((ms_abi)) BOOL FlsSetValue(DWORD i, void *v)
 {
     PE_STATE_GUARD; struct pe_fls_data *f = pe_current_fls();
-    if (!pe_fls_validate(i, f)) return 0; f->values[i] = v; return 1;
+    if (!pe_fls_validate(i, f)) return 0;
+    f->values[i] = v; return 1;
 }
 __attribute__((ms_abi)) BOOL FlsFree(DWORD i)
 {
@@ -1074,9 +1087,10 @@ __attribute__((ms_abi)) int FreeEnvironmentStringsW(uint16_t *p) { (void)p; retu
 __attribute__((ms_abi)) DWORD GetFileType(HANDLE h)
 {
     struct stat st;
-    int fd = pe_handle_to_fd(h);
-    if (fd < 0) { SetLastError(6); return 0; }
+    int fd = pe_fd_pin(h);
+    if (fd < 0) return 0;
     long r = raw_syscall3(SYS_fstat, fd, (long)&st, 0);
+    raw_syscall3(SYS_close, fd, 0, 0);
     if (r < 0) { SetLastError(r == -9 ? 6 : 5); return 0; }
     switch (st.st_mode & S_IFMT) {
     case S_IFCHR: return 2;
@@ -2329,9 +2343,152 @@ static void pe_main_thread_init(void)
     *(struct pe_thread **)(t->teb+0x1700) = t;
 }
 
+static DWORD pe_file_error(long error)
+{
+    switch (-error) {
+    case 1: case 13: case 21: return 5; case 2: return 2; case 20: return 3;
+    case 9: return 6; case 12: return 8; case 14: return 998; case 17: return 80;
+    case 23: case 24: return 4; case 36: return 206; case 38: return 50; default: return 31;
+    }
+}
+static bool pe_linux_path(const uint16_t *path, char *out, unsigned cap)
+{
+    if (!path || !*path) { SetLastError(123); return false; }
+    if (path[0] == '\\' && path[1] == '\\' && path[2] == '?' && path[3] == '\\') path += 4;
+    if (path[0] == '\\' && path[1] == '\\') { SetLastError(53); return false; }
+    if (path[1] == ':') {
+        if (path[0] != 'Z' && path[0] != 'z') { SetLastError(15); return false; }
+        if (!pe_path_sep(path[2])) { SetLastError(123); return false; }
+        path += 2;
+    }
+    if (!WideCharToMultiByte(65001, 0x80, path, -1, out, cap, NULL, NULL)) return false;
+    for (char *p = out; *p; p++) if (*p == '\\') *p = '/';
+    return true;
+}
+static DWORD pe_stat_attributes(const struct stat *s)
+{ return (S_ISDIR(s->st_mode) ? 16u : 128u) | (!(s->st_mode & 0222) ? 1u : 0u); }
+struct pe_filetime { uint32_t low, high; };
+static struct pe_filetime pe_stat_time(int64_t seconds, long nanos)
+{
+    uint64_t value = ((uint64_t)seconds+11644473600ULL)*10000000ULL+nanos/100;
+    return (struct pe_filetime){value, value >> 32};
+}
+struct pe_attribute_data {
+    DWORD attributes; struct pe_filetime creation, access, write; DWORD size_high, size_low;
+};
+_Static_assert(sizeof(struct pe_attribute_data) == 36, "WIN32_FILE_ATTRIBUTE_DATA layout");
+__attribute__((ms_abi)) BOOL GetFileAttributesExW(const uint16_t *path, unsigned level, struct pe_attribute_data *out)
+{
+    if (level || !out) { SetLastError(87); return 0; }
+    char linux_path[4096]; struct stat s;
+    if (!pe_linux_path(path, linux_path, sizeof(linux_path))) return 0;
+    long r = raw_syscall4(SYS_newfstatat, -100, (long)linux_path, (long)&s, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; }
+    out->attributes = pe_stat_attributes(&s);
+    out->creation = pe_stat_time(s.st_ctim.tv_sec, s.st_ctim.tv_nsec); /* ctime approximation */
+    out->access = pe_stat_time(s.st_atim.tv_sec, s.st_atim.tv_nsec);
+    out->write = pe_stat_time(s.st_mtim.tv_sec, s.st_mtim.tv_nsec);
+    out->size_high = (uint64_t)s.st_size >> 32; out->size_low = s.st_size; return 1;
+}
+__attribute__((ms_abi)) DWORD GetFileAttributesW(const uint16_t *path)
+{ struct pe_attribute_data d; return GetFileAttributesExW(path, 0, &d) ? d.attributes : UINT32_MAX; }
+__attribute__((ms_abi)) BOOL GetFileAttributesExA(const char *path, unsigned level, struct pe_attribute_data *out)
+{
+    uint16_t wide[4096];
+    if (!path) { SetLastError(87); return 0; }
+    if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return 0;
+    return GetFileAttributesExW(wide, level, out);
+}
+__attribute__((ms_abi)) DWORD GetFileAttributesA(const char *path)
+{ struct pe_attribute_data d; return GetFileAttributesExA(path, 0, &d) ? d.attributes : UINT32_MAX; }
+__attribute__((ms_abi)) HANDLE CreateFileW(const uint16_t *path, DWORD access, DWORD share, void *security,
+    DWORD disposition, DWORD attributes, HANDLE template_file)
+{
+    (void)share; (void)security; (void)template_file; /* sharing/inheritance not enforced yet */
+    if (attributes & (0x40000000u|0x04000000u)) { SetLastError(50); return (HANDLE)(intptr_t)-1; }
+    char linux_path[4096]; if (!pe_linux_path(path, linux_path, sizeof(linux_path))) return (HANDLE)(intptr_t)-1;
+    int flags = (access & 0x40000000) ? ((access & 0x80000000) ? 2 : 1) : 0;
+    switch (disposition) {
+    case 1: flags |= 0x40|0x80; break; case 2: flags |= 0x40|0x200; break;
+    case 3: break; case 4: flags |= 0x40; break;
+    case 5: if (!(access & 0x40000000)) { SetLastError(87); return (HANDLE)(intptr_t)-1; } flags |= 0x200; break;
+    default: SetLastError(87); return (HANDLE)(intptr_t)-1;
+    }
+    PE_STATE_GUARD;
+    struct stat s; bool exists = !raw_syscall4(SYS_newfstatat, -100, (long)linux_path, (long)&s, 0);
+    long fd = raw_syscall4(SYS_openat, -100, (long)linux_path, flags|0x80000, 0666);
+    if (fd < 0) { SetLastError(pe_file_error(fd)); return (HANDLE)(intptr_t)-1; }
+    struct stat opened;
+    long status = raw_syscall3(SYS_fstat, fd, (long)&opened, 0);
+    if (status < 0 || (S_ISDIR(opened.st_mode) && !(attributes & 0x02000000))) {
+        raw_syscall3(SYS_close, fd, 0, 0); SetLastError(5); return (HANDLE)(intptr_t)-1;
+    }
+    HANDLE h = pe_fd_to_handle(fd);
+    if (h == (HANDLE)(intptr_t)-1) { raw_syscall3(SYS_close, fd, 0, 0); SetLastError(4); return h; }
+    SetLastError((disposition == 2 || disposition == 4) && exists ? 183 : 0); return h;
+}
+__attribute__((ms_abi)) HANDLE CreateFileA(const char *path, DWORD access, DWORD share, void *security,
+    DWORD disposition, DWORD attributes, HANDLE template_file)
+{
+    uint16_t wide[4096];
+    if (!path) { SetLastError(87); return (HANDLE)(intptr_t)-1; }
+    if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return (HANDLE)(intptr_t)-1;
+    return CreateFileW(wide, access, share, security, disposition, attributes, template_file);
+}
+__attribute__((ms_abi)) BOOL ReadFile(HANDLE h, void *buffer, DWORD bytes, DWORD *read_bytes, void *overlapped)
+{
+    if (read_bytes) *read_bytes = 0;
+    if (overlapped) { SetLastError(50); return 0; }
+    int fd = pe_fd_pin(h); if (fd < 0) return 0;
+    long r; do { r = raw_syscall3(SYS_read, fd, (long)buffer, bytes); } while (r == -4);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; }
+    if (read_bytes) *read_bytes = r; return 1;
+}
+__attribute__((ms_abi)) BOOL SetFilePointerEx(HANDLE h, int64_t distance, int64_t *position, DWORD method)
+{
+    if (method > 2) { SetLastError(87); return 0; }
+    int fd = pe_fd_pin(h); if (fd < 0) return 0;
+    long r = raw_syscall3(SYS_lseek, fd, distance, method);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    if (r < 0) { SetLastError(r == -22 ? 131 : pe_file_error(r)); return 0; }
+    if (position) *position = r; return 1;
+}
+__attribute__((ms_abi)) BOOL GetFileSizeEx(HANDLE h, int64_t *size)
+{
+    if (!size) { SetLastError(87); return 0; }
+    int fd = pe_fd_pin(h); if (fd < 0) return 0;
+    struct stat s; long r = raw_syscall3(SYS_fstat, fd, (long)&s, 0);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; }
+    *size = s.st_size; return 1;
+}
+__attribute__((ms_abi)) DWORD GetFileSize(HANDLE h, DWORD *high)
+{
+    int64_t size; if (!GetFileSizeEx(h, &size)) return UINT32_MAX;
+    if (high) *high = (uint64_t)size >> 32; SetLastError(0); return size;
+}
+__attribute__((ms_abi)) BOOL DeleteFileW(const uint16_t *path)
+{
+    char linux_path[4096]; if (!pe_linux_path(path, linux_path, sizeof(linux_path))) return 0;
+    long r = raw_syscall3(SYS_unlink, (long)linux_path, 0, 0);
+    if (r < 0) { SetLastError(pe_file_error(r)); return 0; } return 1;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesExW")) return GetFileAttributesExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesExA")) return GetFileAttributesExA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesW")) return GetFileAttributesW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesA")) return GetFileAttributesA;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFileW")) return CreateFileW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFileA")) return CreateFileA;
+    if (!by_ordinal && ascii_equal_ci(function, "ReadFile")) return ReadFile;
+    if (!by_ordinal && ascii_equal_ci(function, "SetFilePointerEx")) return SetFilePointerEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileSizeEx")) return GetFileSizeEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileSize")) return GetFileSize;
+    if (!by_ordinal && ascii_equal_ci(function, "DeleteFileW")) return DeleteFileW;
     if (!by_ordinal && ascii_equal_ci(function, "CloseHandle")) return CloseHandle;
     if (!by_ordinal && ascii_equal_ci(function, "WaitForMultipleObjectsEx")) return WaitForMultipleObjectsEx;
     if (!by_ordinal && ascii_equal_ci(function, "WaitForMultipleObjects")) return WaitForMultipleObjects;
