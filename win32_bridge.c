@@ -1718,9 +1718,98 @@ __attribute__((ms_abi)) BOOL GetProcessAffinityMask(HANDLE process, uintptr_t *p
     *process_mask = *system_mask = 1; return 1;
 }
 
+static bool pe_path_sep(uint16_t c) { return c == '\\' || c == '/'; }
+static int pe_path_length(const uint16_t *p)
+{
+    if (!p) { SetLastError(87); return -1; }
+    for (int i = 0; i < 260; i++) if (!p[i]) return i;
+    SetLastError(206); return -1;
+}
+static unsigned pe_path_root_length(const uint16_t *p, unsigned n)
+{
+    if (n >= 2 && p[1] == ':') return n >= 3 && pe_path_sep(p[2]) ? 3 : 2;
+    if (n && pe_path_sep(p[0])) {
+        if (n > 1 && pe_path_sep(p[1])) {
+            unsigned i = 2;
+            while (i < n && !pe_path_sep(p[i])) i++;
+            if (i < n) i++;
+            while (i < n && !pe_path_sep(p[i])) i++;
+            return i;
+        }
+        return 1;
+    }
+    return 0;
+}
+__attribute__((ms_abi)) BOOL PathRemoveFileSpecW(uint16_t *p)
+{
+    int n = pe_path_length(p); if (n < 0) return 0;
+    unsigned root = pe_path_root_length(p, n), end = n;
+    if (end <= root) return 0;
+    while (end > root && !pe_path_sep(p[end-1])) end--;
+    if (end > root) end--;
+    p[end] = 0; return end != (unsigned)n;
+}
+__attribute__((ms_abi)) BOOL PathIsRelativeW(const uint16_t *p)
+{ return !p || !*p || (!pe_path_sep(p[0]) && !(p[1] == ':')); }
+__attribute__((ms_abi)) BOOL PathIsUNCW(const uint16_t *p)
+{ return p && p[0] == '\\' && p[1] == '\\'; }
+__attribute__((ms_abi)) BOOL PathIsRootW(const uint16_t *p)
+{
+    int n = pe_path_length(p); if (n <= 0) return 0;
+    unsigned root = pe_path_root_length(p, n);
+    return root && root == (unsigned)n && !(n == 2 && p[1] == ':');
+}
+__attribute__((ms_abi)) int PathGetDriveNumberW(const uint16_t *p)
+{
+    if (!p || !p[0] || p[1] != ':') return -1;
+    unsigned c = p[0]; if (c >= 'a' && c <= 'z') c -= 32;
+    return c >= 'A' && c <= 'Z' ? (int)(c-'A') : -1;
+}
+__attribute__((ms_abi)) uint16_t *PathFindFileNameW(const uint16_t *p)
+{
+    if (!p) { SetLastError(87); return NULL; }
+    const uint16_t *last = p;
+    for (; *p; p++) if (pe_path_sep(*p) || *p == ':') last = p+1;
+    return (uint16_t *)last;
+}
+__attribute__((ms_abi)) uint16_t *PathFindExtensionW(const uint16_t *p)
+{
+    const uint16_t *name = PathFindFileNameW(p), *dot = NULL;
+    if (!name) return NULL;
+    while (*name) { if (*name == '.') dot = name; name++; }
+    return (uint16_t *)(dot ? dot : name);
+}
+__attribute__((ms_abi)) void PathRemoveExtensionW(uint16_t *p)
+{ uint16_t *dot = PathFindExtensionW(p); if (dot) *dot = 0; }
+__attribute__((ms_abi)) uint16_t *PathAddBackslashW(uint16_t *p)
+{
+    int n = pe_path_length(p); if (n < 0) return NULL;
+    if (n && !pe_path_sep(p[n-1])) {
+        if (n >= 259) { SetLastError(206); return NULL; }
+        p[n++] = '\\'; p[n] = 0;
+    }
+    return p+n;
+}
+__attribute__((ms_abi)) uint16_t *PathRemoveBackslashW(uint16_t *p)
+{
+    int n = pe_path_length(p); if (n < 0) return NULL;
+    if (n && pe_path_sep(p[n-1]) && !PathIsRootW(p)) p[--n] = 0;
+    return p+n;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "PathRemoveFileSpecW")) return PathRemoveFileSpecW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathIsRelativeW")) return PathIsRelativeW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathIsUNCW")) return PathIsUNCW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathIsRootW")) return PathIsRootW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathGetDriveNumberW")) return PathGetDriveNumberW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathFindFileNameW")) return PathFindFileNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathFindExtensionW")) return PathFindExtensionW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathRemoveExtensionW")) return PathRemoveExtensionW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathAddBackslashW")) return PathAddBackslashW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathRemoveBackslashW")) return PathRemoveBackslashW;
     if (!by_ordinal && ascii_equal_ci(function, "GetVersionExW")) return GetVersionExW;
     if (!by_ordinal && ascii_equal_ci(function, "GetVersionExA")) return GetVersionExA;
     if (!by_ordinal && ascii_equal_ci(function, "RtlGetVersion")) return RtlGetVersion;

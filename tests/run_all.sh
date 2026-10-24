@@ -8,8 +8,8 @@ trap 'rm -rf "$work"' EXIT
 flags=(-O1 -fno-builtin -fno-tree-loop-distribute-patterns -nostdlib
        -ffreestanding -fno-stack-protector -Wl,--entry=mainCRTStartup
        -Wl,--subsystem,console)
-for name in hello heap utf exception_diag gdi_objects tls sync; do
-    x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 || exit 1
+for name in hello heap utf exception_diag gdi_objects tls sync paths; do
+    x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lshlwapi || exit 1
 done
 x86_64-w64-mingw32-gcc "${flags[@]}" -o "$work/hello.exe" tests/hello42.c -lkernel32 || exit 1
 failures=0
@@ -40,6 +40,7 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
+check_pe tests/paths.exe 0 'paths ok' timeout 15s tests/paths.exe
 timeout 15s tests/exception_diag.exe > "$work/diag.out" 2> "$work/diag.err"
 status=$?
 if [[ $status == 127 ]] &&
