@@ -1846,6 +1846,70 @@ static void test_and_setup_teb_gs(void)
 	raw_puts("\n");
 }
 
+struct pe_tls_directory64 {
+    uint64_t start, end, index, callbacks;
+    uint32_t zero_fill, characteristics;
+};
+_Static_assert(sizeof(struct pe_tls_directory64) == 40, "IMAGE_TLS_DIRECTORY64 layout");
+static __attribute__((noreturn)) void pe_loader_error(const char *message)
+{
+    raw_puts("[BRIDGE] loader error: "); raw_puts(message); raw_puts("\n");
+    ExitProcess(127);
+}
+/* Compiler TLS is separate from the Tls/Fls API slot arrays above.
+ * TODO: per-thread blocks for CreateThread. */
+static void pe_setup_image_tls(uintptr_t base)
+{
+    uint32_t nt, count, dd[2]; uint16_t optional_size;
+    if (!diagnostic_image_read(base+0x3c, &nt, 4) ||
+        !diagnostic_image_read(base+nt+20, &optional_size, 2) || optional_size < 0x70 ||
+        !diagnostic_image_read(base+nt+24+0x6c, &count, 4)) pe_loader_error("invalid TLS headers");
+    if (count <= 9) return;
+    if (optional_size < 0x70+10*8 ||
+        !diagnostic_image_read(base+nt+24+0x70+9*8, dd, sizeof(dd))) pe_loader_error("invalid TLS directory entry");
+    if (!dd[0] && !dd[1]) return;
+    struct pe_tls_directory64 tls;
+    if (dd[1] < sizeof(tls) || !diagnostic_image_read(base+dd[0], &tls, sizeof(tls)) ||
+        tls.end < tls.start) pe_loader_error("invalid TLS directory");
+    uint64_t raw_size = tls.end-tls.start;
+    if ((raw_size && (tls.start < base || tls.end > pe_main_end)) ||
+        tls.index < base || tls.index > pe_main_end-4) pe_loader_error("TLS address outside image");
+    unsigned align_code = (tls.characteristics >> 20) & 15;
+    if (align_code == 15) pe_loader_error("reserved TLS alignment");
+    uint64_t align = align_code ? 1ULL << (align_code-1) : 16;
+    if (align < 16) align = 16;
+    if (raw_size > UINT64_MAX-tls.zero_fill-15) pe_loader_error("TLS size overflow");
+    uint64_t size = (raw_size+tls.zero_fill+15) & ~15ULL;
+    if (!size) size = 16;
+    if (size > INT64_MAX-align) pe_loader_error("TLS allocation too large");
+    uint8_t *allocation = (void *)pe_mmap_rw(size+align-1);
+    void **array = (void *)pe_mmap_rw(64*sizeof(void *));
+    if (!allocation || !array) pe_loader_error("TLS allocation failed");
+    uint8_t *block = (void *)(((uintptr_t)allocation+align-1) & ~(align-1));
+    if (raw_size && !diagnostic_image_read(tls.start, block, raw_size)) pe_loader_error("unreadable TLS template");
+    memset(block+raw_size, 0, size-raw_size);
+    uintptr_t teb;
+    __asm__ volatile ("mov %%gs:0x30, %0" : "=r"(teb));
+    array[0] = block;
+    *(void ***)(teb+0x58) = array;
+    *(uint32_t *)(uintptr_t)tls.index = 0;
+    raw_puts("[BRIDGE] TLS: template="); raw_hex(raw_size);
+    raw_puts(" zero-fill="); raw_hex(tls.zero_fill); raw_puts(" alignment="); raw_hex(align); raw_puts("\n");
+    if (tls.callbacks) {
+        /* Bound the callback walk by the image, including its terminator. */
+        uintptr_t pos = tls.callbacks;
+        for (;;) {
+            uint64_t callback;
+            if (!diagnostic_image_read(pos, &callback, 8)) pe_loader_error("unterminated TLS callbacks");
+            if (!callback) break;
+            if (callback < pe_text_start || callback >= pe_text_end) pe_loader_error("TLS callback outside .text");
+            typedef void (__attribute__((ms_abi)) *tls_callback)(void *, uint32_t, void *);
+            ((tls_callback)(uintptr_t)callback)((void *)base, 1, NULL);
+            pos += 8;
+        }
+    }
+}
+
 __attribute__((used, visibility("hidden")))
 void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
 		      uint32_t import_size, uintptr_t *sp)
@@ -1859,6 +1923,7 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
 #endif
 	resolve_imports(image_base, import_rva, import_size, verbose);
 	test_and_setup_teb_gs();
+    pe_setup_image_tls(image_base);
 }
 
 /* RDI=PE entry, RSI=PEB, RDX=image base, RCX=import RVA, R8=import size. */
