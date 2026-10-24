@@ -189,3 +189,12 @@ sphinx_*/
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
 CS16_Setup.exe
+
+# binfmt_pe build and captured run artifacts
+/tests/*.exe
+/win32_bridge.so
+/fs/*.ko
+/fs/*.o
+/tmp/
+/out.txt
+/err.txt
