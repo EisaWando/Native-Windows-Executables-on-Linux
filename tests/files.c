@@ -1,5 +1,6 @@
 #define UNICODE
 #include <windows.h>
+#include <shlwapi.h>
 void mainCRTStartup(void)
 {
     static WCHAR path[256]; const WCHAR *prefix = L"Z:\\tmp\\binfmt-pe-files-";
@@ -58,6 +59,14 @@ void mainCRTStartup(void)
     }
     ok &= (GetFileAttributesW(L"Z:\\tmp") & FILE_ATTRIBUTE_DIRECTORY) != 0;
     ok &= GetFileAttributesW(L"C:\\no-such-file") == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_INVALID_DRIVE;
+    ULARGE_INTEGER available, total, free_bytes;
+    ok &= GetDiskFreeSpaceExW(L"Z:\\tmp", &available, &total, &free_bytes) && total.QuadPart > 0 && available.QuadPart <= free_bytes.QuadPart && free_bytes.QuadPart <= total.QuadPart;
+    ok &= GetDiskFreeSpaceExA("Z:\\tmp", &available, &total, &free_bytes);
+    DWORD sectors, sector_bytes, free_clusters, total_clusters;
+    ok &= GetDiskFreeSpaceW(L"Z:\\tmp", &sectors, &sector_bytes, &free_clusters, &total_clusters) && sectors > 0 && sector_bytes == 512 && free_clusters <= total_clusters;
+    ok &= PathIsNetworkPathW(L"\\\\server\\share") && PathIsNetworkPathA("\\\\server\\share");
+    ok &= (PathIsNetworkPathW(L"Z:\\") != 0) == (GetDriveTypeW(L"Z:\\") == DRIVE_REMOTE);
+    ok &= GetDriveTypeA("Z:\\") == GetDriveTypeW(L"Z:\\");
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), ok ? "files ok\n" : "files FAIL\n", ok ? 9 : 11, &written, 0);
     ExitProcess(ok ? 0 : 1);
 }

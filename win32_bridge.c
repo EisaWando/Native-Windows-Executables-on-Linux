@@ -11,6 +11,7 @@
 #include <ucontext.h>
 #include <sys/syscall.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 
 #ifndef SA_RESTORER
 #define SA_RESTORER 0x04000000
@@ -3059,9 +3060,101 @@ __attribute__((ms_abi)) HANDLE FindFirstFileExA(const char *pattern, unsigned le
 __attribute__((ms_abi)) HANDLE FindFirstFileA(const char *pattern, struct pe_find_data_a *out)
 { return FindFirstFileExA(pattern, 0, out, 0, NULL, 0); }
 
+static bool pe_path_filesystem(const uint16_t *path, struct statfs *out, bool parents)
+{
+    char native[4096];
+    if (!path) { native[0] = '.'; native[1] = 0; }
+    else if (!pe_linux_path(path, native, sizeof(native))) return false;
+    for (;;) {
+        long r = raw_syscall3(SYS_statfs, (long)native, (long)out, 0);
+        if (!r) return true;
+        if (!parents || (r != -2 && r != -20)) { SetLastError(pe_file_error(r)); return false; }
+        char *last = NULL;
+        for (char *p = native; *p; p++) if (*p == '/') last = p;
+        if (!last) { native[0] = '.'; native[1] = 0; parents = false; }
+        else if (last == native) {
+            if (!native[1]) { SetLastError(pe_file_error(r)); return false; }
+            native[1] = 0;
+        } else *last = 0;
+    }
+}
+static bool pe_remote_filesystem(const struct statfs *fs)
+{
+    unsigned long type = fs->f_type;
+    return type == 0x6969 /* NFS */ || type == 0xff534d42 /* CIFS */ ||
+        type == 0x517b /* SMB */ || type == 0xfe534d42 /* SMB2 */ || type == 0x564c /* NCP */;
+}
+__attribute__((ms_abi)) BOOL PathIsNetworkPathW(const uint16_t *path)
+{
+    if (!path) { SetLastError(87); return 0; }
+    if (PathIsUNCW(path)) return 1;
+    struct statfs fs; return pe_path_filesystem(path, &fs, true) && pe_remote_filesystem(&fs);
+}
+__attribute__((ms_abi)) BOOL PathIsNetworkPathA(const char *path)
+{
+    uint16_t wide[4096];
+    if (!path) { SetLastError(87); return 0; }
+    if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return 0;
+    return PathIsNetworkPathW(wide);
+}
+__attribute__((ms_abi)) unsigned GetDriveTypeW(const uint16_t *root)
+{
+    if (root && PathIsUNCW(root)) return 4;
+    struct statfs fs;
+    if (!pe_path_filesystem(root, &fs, true)) return 1;
+    if (pe_remote_filesystem(&fs)) return 4;
+    return fs.f_type == 0x01021994 /* TMPFS */ || fs.f_type == 0x858458f6 /* RAMFS */ ? 6 : 3;
+}
+__attribute__((ms_abi)) unsigned GetDriveTypeA(const char *root)
+{
+    if (!root) return GetDriveTypeW(NULL);
+    uint16_t wide[4096]; if (!MultiByteToWideChar(65001, 8, root, -1, wide, 4096)) return 1;
+    return GetDriveTypeW(wide);
+}
+__attribute__((ms_abi)) BOOL GetDiskFreeSpaceExW(const uint16_t *path, uint64_t *available, uint64_t *total, uint64_t *free_bytes)
+{
+    struct statfs fs; if (!pe_path_filesystem(path, &fs, false)) return 0;
+    uint64_t block = fs.f_frsize ? fs.f_frsize : fs.f_bsize;
+    if (!block || fs.f_blocks > UINT64_MAX/block || fs.f_bavail > UINT64_MAX/block || fs.f_bfree > UINT64_MAX/block) { SetLastError(534); return 0; }
+    if (available) *available = fs.f_bavail*block;
+    if (total) *total = fs.f_blocks*block;
+    if (free_bytes) *free_bytes = fs.f_bfree*block;
+    return 1;
+}
+__attribute__((ms_abi)) BOOL GetDiskFreeSpaceExA(const char *path, uint64_t *available, uint64_t *total, uint64_t *free_bytes)
+{
+    if (!path) return GetDiskFreeSpaceExW(NULL, available, total, free_bytes);
+    uint16_t wide[4096]; if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return 0;
+    return GetDiskFreeSpaceExW(wide, available, total, free_bytes);
+}
+__attribute__((ms_abi)) BOOL GetDiskFreeSpaceW(const uint16_t *path, DWORD *sectors, DWORD *bytes_per_sector, DWORD *free_clusters, DWORD *total_clusters)
+{
+    if (!sectors || !bytes_per_sector || !free_clusters || !total_clusters) { SetLastError(87); return 0; }
+    struct statfs fs; if (!pe_path_filesystem(path, &fs, false)) return 0;
+    uint64_t block = fs.f_frsize ? fs.f_frsize : fs.f_bsize;
+    if (block < 512 || block > UINT32_MAX) { SetLastError(50); return 0; }
+    *sectors = (block+511)/512; *bytes_per_sector = 512;
+    *free_clusters = fs.f_bavail > UINT32_MAX ? UINT32_MAX : fs.f_bavail;
+    *total_clusters = fs.f_blocks > UINT32_MAX ? UINT32_MAX : fs.f_blocks; return 1;
+}
+__attribute__((ms_abi)) BOOL GetDiskFreeSpaceA(const char *path, DWORD *sectors, DWORD *bytes, DWORD *free_clusters, DWORD *total_clusters)
+{
+    if (!path) return GetDiskFreeSpaceW(NULL, sectors, bytes, free_clusters, total_clusters);
+    uint16_t wide[4096]; if (!MultiByteToWideChar(65001, 8, path, -1, wide, 4096)) return 0;
+    return GetDiskFreeSpaceW(wide, sectors, bytes, free_clusters, total_clusters);
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "PathIsNetworkPathW")) return PathIsNetworkPathW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathIsNetworkPathA")) return PathIsNetworkPathA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDriveTypeW")) return GetDriveTypeW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDriveTypeA")) return GetDriveTypeA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDiskFreeSpaceExW")) return GetDiskFreeSpaceExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDiskFreeSpaceExA")) return GetDiskFreeSpaceExA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDiskFreeSpaceW")) return GetDiskFreeSpaceW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDiskFreeSpaceA")) return GetDiskFreeSpaceA;
     if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileW")) return FindFirstFileW;
     if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileA")) return FindFirstFileA;
     if (!by_ordinal && ascii_equal_ci(function, "FindFirstFileExW")) return FindFirstFileExW;
