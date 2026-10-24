@@ -2591,9 +2591,143 @@ __attribute__((ms_abi)) BOOL GetClassInfoW(HANDLE instance, const uint16_t *name
         ex.instance, ex.icon, ex.cursor, ex.background, ex.menu_name, ex.class_name}; return 1;
 }
 
+/* Native folder profile under the existing Z: -> / mapping. The host
+ * environment is read privately for folder locations; the Win32 environment
+ * block remains intentionally empty until its API surface is implemented. */
+static char *pe_host_environment;
+static const char *pe_host_env(const char *name)
+{
+    PE_STATE_GUARD;
+    if (!pe_host_environment) {
+        char *p = pe_raw_map(65537); if (!p) return NULL;
+        long fd = raw_syscall3(SYS_open, (long)"/proc/self/environ", 0, 0);
+        unsigned used = 0;
+        if (fd >= 0) {
+            while (used < 65536) {
+                long n = raw_syscall3(SYS_read, fd, (long)(p+used), 65536-used);
+                if (n == -4) continue;
+                if (n <= 0) break; used += n;
+            }
+            raw_syscall3(SYS_close, fd, 0, 0);
+        }
+        p[used] = 0; pe_host_environment = p;
+    }
+    size_t length = cstring_length(name);
+    for (const char *p = pe_host_environment; *p; p += cstring_length(p)+1)
+        if (!memcmp(p, name, length) && p[length] == '=') return p+length+1;
+    return NULL;
+}
+static int pe_native_folder_path(const char *path, uint16_t *out, int cap, bool trailing)
+{
+    if (!path || path[0] != '/') { SetLastError(3); return 0; }
+    uint16_t wide[4096];
+    int n = MultiByteToWideChar(65001, 8, path, -1, wide, 4096); if (!n) return 0;
+    int length = n+1; /* omit source NUL, add Z: */
+    if (trailing && wide[n-2] != '/') length++;
+    if (cap <= length) return length+1;
+    if (!out) { SetLastError(87); return 0; }
+    out[0] = 'Z'; out[1] = ':';
+    for (int i = 0; i < n-1; i++) out[i+2] = wide[i] == '/' ? '\\' : wide[i];
+    if (length > n+1) out[length-1] = '\\';
+    out[length] = 0; return length;
+}
+static const char *pe_folder_location(unsigned id, char *buffer)
+{
+    const char *home = pe_host_env("HOME"), *suffix = NULL, *override = NULL;
+    switch (id) {
+    case 0x26: case 0x2a: return "/opt";
+    case 0x2b: case 0x2c: return "/usr/share";
+    case 0x24: return "/"; case 0x25: case 0x29: return "/usr/lib";
+    case 0x14: return "/usr/share/fonts"; case 0x23: return "/var/lib";
+    case 0x28: return home;
+    case 0x1a: override = pe_host_env("XDG_CONFIG_HOME"); suffix = "/.config"; break;
+    case 0x1c: override = pe_host_env("XDG_DATA_HOME"); suffix = "/.local/share"; break;
+    case 0: case 0x10: suffix = "/Desktop"; break;
+    case 5: suffix = "/Documents"; break;
+    case 0x27: suffix = "/Pictures"; break;
+    case 0x0d: suffix = "/Music"; break; case 0x0e: suffix = "/Videos"; break;
+    default: SetLastError(50); return NULL;
+    }
+    if (override && override[0] == '/') return override;
+    if (!home || home[0] != '/') { SetLastError(3); return NULL; }
+    size_t n = cstring_length(home), m = cstring_length(suffix);
+    if (n+m >= 4096) { SetLastError(206); return NULL; }
+    memcpy(buffer, home, n); memcpy(buffer+n, suffix, m+1); return buffer;
+}
+__attribute__((ms_abi)) int32_t SHGetFolderPathW(HANDLE owner, int folder, HANDLE token, DWORD flags, uint16_t *out)
+{
+    (void)owner;
+    if (!out || token || flags > 1) return (int32_t)0x80070057;
+    out[0] = 0; char buffer[4096];
+    const char *location = pe_folder_location(folder & 0xff, buffer);
+    if (!location) return (int32_t)0x80070000 | GetLastError();
+    if (!(folder & 0x4000)) {
+        struct stat s; long r = raw_syscall4(SYS_newfstatat, -100, (long)location, (long)&s, 0);
+        if (r < 0 || !S_ISDIR(s.st_mode)) return (int32_t)0x80070003;
+    }
+    int n = pe_native_folder_path(location, out, 260, false);
+    if (!n || n >= 260) { out[0] = 0; return (int32_t)0x800700ce; }
+    return 0;
+}
+__attribute__((ms_abi)) int32_t SHGetFolderPathA(HANDLE owner, int folder, HANDLE token, DWORD flags, char *out)
+{
+    if (!out) return (int32_t)0x80070057;
+    uint16_t wide[260]; out[0] = 0;
+    int32_t status = SHGetFolderPathW(owner, folder, token, flags, wide); if (status < 0) return status;
+    return WideCharToMultiByte(65001, 0, wide, -1, out, 260, NULL, NULL) ? 0 : (int32_t)0x800700ce;
+}
+__attribute__((ms_abi)) BOOL SHGetSpecialFolderPathW(HANDLE owner, uint16_t *out, int folder, BOOL create)
+{
+    if (create) { SetLastError(50); return 0; } /* profile-directory creation is not implemented */
+    return SHGetFolderPathW(owner, folder, NULL, 0, out) >= 0;
+}
+__attribute__((ms_abi)) BOOL SHGetSpecialFolderPathA(HANDLE owner, char *out, int folder, BOOL create)
+{
+    if (create) { SetLastError(50); return 0; }
+    return SHGetFolderPathA(owner, folder, NULL, 0, out) >= 0;
+}
+__attribute__((ms_abi)) DWORD GetSystemDirectoryW(uint16_t *out, DWORD cap)
+{ return pe_native_folder_path("/usr/lib", out, cap, false); }
+__attribute__((ms_abi)) DWORD GetWindowsDirectoryW(uint16_t *out, DWORD cap)
+{ return pe_native_folder_path("/", out, cap, false); }
+__attribute__((ms_abi)) DWORD GetTempPathW(DWORD cap, uint16_t *out)
+{
+    const char *temp = pe_host_env("TMPDIR");
+    return pe_native_folder_path(temp && temp[0] == '/' ? temp : "/tmp", out, cap, true);
+}
+static DWORD pe_native_folder_ansi(const char *path, char *out, DWORD cap, bool trailing)
+{
+    uint16_t wide[4096]; int n = pe_native_folder_path(path, wide, 4096, trailing);
+    if (!n || n >= 4096) return 0;
+    int bytes = WideCharToMultiByte(65001, 0, wide, -1, NULL, 0, NULL, NULL);
+    if (!bytes) return 0;
+    if (cap < (DWORD)bytes) return bytes;
+    if (!out) { SetLastError(87); return 0; }
+    return WideCharToMultiByte(65001, 0, wide, -1, out, cap, NULL, NULL) ? bytes-1 : 0;
+}
+__attribute__((ms_abi)) DWORD GetSystemDirectoryA(char *out, DWORD cap)
+{ return pe_native_folder_ansi("/usr/lib", out, cap, false); }
+__attribute__((ms_abi)) DWORD GetWindowsDirectoryA(char *out, DWORD cap)
+{ return pe_native_folder_ansi("/", out, cap, false); }
+__attribute__((ms_abi)) DWORD GetTempPathA(DWORD cap, char *out)
+{
+    const char *temp = pe_host_env("TMPDIR");
+    return pe_native_folder_ansi(temp && temp[0] == '/' ? temp : "/tmp", out, cap, true);
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "SHGetFolderPathW")) return SHGetFolderPathW;
+    if (!by_ordinal && ascii_equal_ci(function, "SHGetFolderPathA")) return SHGetFolderPathA;
+    if (!by_ordinal && ascii_equal_ci(function, "SHGetSpecialFolderPathW")) return SHGetSpecialFolderPathW;
+    if (!by_ordinal && ascii_equal_ci(function, "SHGetSpecialFolderPathA")) return SHGetSpecialFolderPathA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDirectoryW")) return GetSystemDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDirectoryA")) return GetSystemDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowsDirectoryW")) return GetWindowsDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowsDirectoryA")) return GetWindowsDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTempPathW")) return GetTempPathW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTempPathA")) return GetTempPathA;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterWindowMessageW")) return RegisterWindowMessageW;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterWindowMessageA")) return RegisterWindowMessageA;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterClipboardFormatW")) return RegisterClipboardFormatW;
