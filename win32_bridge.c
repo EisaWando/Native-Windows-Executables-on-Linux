@@ -1842,13 +1842,17 @@ __attribute__((ms_abi)) BOOL SleepConditionVariableSRW(uint64_t *cv, uint64_t *l
     return 1; /* spurious/interrupted wakes are permitted */
 }
 
+#define PE_WIN_MAJOR 10u
+#define PE_WIN_MINOR 0u
+#define PE_WIN_BUILD 19045u
+#define PE_WIN_BUILD_STRING "19045"
 /* Stable emulated Windows 10 / x64 / single-CPU process profile. */
 __attribute__((ms_abi)) BOOL GetVersionExW(void *out)
 {
     if (!out || (*(DWORD *)out != 276 && *(DWORD *)out != 284)) { SetLastError(87); return 0; }
     DWORD size = *(DWORD *)out;
     memset(out, 0, size); DWORD *v = out;
-    v[0] = size; v[1] = 10; v[3] = 19045; v[4] = 2;
+    v[0] = size; v[1] = PE_WIN_MAJOR; v[2] = PE_WIN_MINOR; v[3] = PE_WIN_BUILD; v[4] = 2;
     if (size == 284) ((uint8_t *)out)[282] = 1; /* VER_NT_WORKSTATION */
     return 1;
 }
@@ -1857,13 +1861,13 @@ __attribute__((ms_abi)) BOOL GetVersionExA(void *out)
     if (!out || (*(DWORD *)out != 148 && *(DWORD *)out != 156)) { SetLastError(87); return 0; }
     DWORD size = *(DWORD *)out;
     memset(out, 0, size); DWORD *v = out;
-    v[0] = size; v[1] = 10; v[3] = 19045; v[4] = 2;
+    v[0] = size; v[1] = PE_WIN_MAJOR; v[2] = PE_WIN_MINOR; v[3] = PE_WIN_BUILD; v[4] = 2;
     if (size == 156) ((uint8_t *)out)[154] = 1;
     return 1;
 }
 __attribute__((ms_abi)) int32_t RtlGetVersion(void *out)
 { return GetVersionExW(out) ? 0 : (int32_t)0xc000000d; }
-__attribute__((ms_abi)) DWORD GetVersion(void) { return (19045u << 16) | 10; }
+__attribute__((ms_abi)) DWORD GetVersion(void) { return (PE_WIN_BUILD << 16) | PE_WIN_MAJOR; }
 struct pe_system_info {
     uint16_t arch, reserved; uint32_t page_size;
     uintptr_t min_address, max_address, active_mask;
@@ -1975,13 +1979,15 @@ __attribute__((ms_abi)) uint16_t *PathRemoveBackslashW(uint16_t *p)
 }
 
 /* Kernel-style synchronization objects, in a range separate from files/GDI. */
-enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE };
+struct pe_reg_node;
+enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE, PE_REGKEY };
 struct pe_thread;
 struct pe_wait_object {
     unsigned kind, refs; bool named; uint16_t name[256];
     struct pe_wait_object *next;
     union {
         struct pe_thread *thread;
+        struct { struct pe_reg_node *node; DWORD access; } reg;
         struct { bool manual, signaled; } event;
         struct { uint32_t owner, recursion; bool abandoned; } mutex;
         struct { int32_t count, max; } semaphore;
@@ -2165,6 +2171,7 @@ __attribute__((ms_abi)) DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE
     PE_STATE_GUARD;
     for (unsigned i = 0; i < count; i++) {
         objects[i] = pe_wait_lookup(handles[i], 0); if (!objects[i]) goto out;
+        if (objects[i]->kind == PE_REGKEY) { SetLastError(6); goto out; }
         for (unsigned j = 0; j < i; j++)
             if (handles[j] == handles[i] || (all && objects[j] == objects[i])) { SetLastError(87); goto out; }
         objects[i]->refs++; pinned++;
@@ -3148,9 +3155,301 @@ __attribute__((ms_abi)) BOOL GetDiskFreeSpaceA(const char *path, DWORD *sectors,
     return GetDiskFreeSpaceW(wide, sectors, bytes, free_clusters, total_clusters);
 }
 
+/* Process-local registry. Stable mmap nodes survive deletion until process exit;
+ * opened handles pin their node and deleted nodes reject further operations. */
+struct pe_reg_value { struct pe_reg_value *next; uint16_t *name; DWORD type, size; size_t allocation; void *data; };
+struct pe_reg_node { struct pe_reg_node *next, *children, *parent; struct pe_reg_value *values; uint16_t *name; bool deleted; };
+static struct pe_reg_node *pe_reg_roots[5];
+static unsigned pe_reg_fold(unsigned c)
+{
+    if ((c >= 'A' && c <= 'Z') || (c >= 0xc0 && c <= 0xde && c != 0xd7) || (c >= 0x410 && c <= 0x42f)) return c+32;
+    return c;
+}
+static bool pe_reg_equal(const uint16_t *a, const uint16_t *b)
+{ while (*a && pe_reg_fold(*a) == pe_reg_fold(*b)) { a++; b++; } return *a == *b; }
+static uint16_t *pe_reg_string(const void *s, bool ansi)
+{
+    static const uint16_t empty; if (!s) s = ansi ? (const void *)"" : &empty;
+    int n = ansi ? MultiByteToWideChar(65001, 8, s, -1, NULL, 0) : lstrlenW(s)+1;
+    if (n <= 0) return NULL;
+    uint16_t *w = pe_raw_map((size_t)n*2); if (!w) return NULL;
+    if (ansi) MultiByteToWideChar(65001, 8, s, -1, w, n); else memcpy(w, s, n*2);
+    return w;
+}
+static void pe_reg_drop_string(uint16_t *s)
+{ if (s) raw_syscall3(SYS_munmap, (long)s, (lstrlenW(s)+1)*2, 0); }
+static struct pe_reg_node *pe_reg_walk(struct pe_reg_node *n, const uint16_t *path, bool create, bool *fresh)
+{
+    *fresh = false;
+    while (path && *path) {
+        while (*path == '\\') path++;
+        unsigned len=0; while (path[len] && path[len]!='\\') len++;
+        if (!len) break;
+        uint16_t *part=pe_raw_map((len+1)*2); if (!part) return NULL;
+        memcpy(part,path,len*2); struct pe_reg_node *c=n->children;
+        while (c && !pe_reg_equal(c->name,part)) c=c->next;
+        if (!c && create) {
+            c=pe_raw_map(sizeof(*c)); if (c) { c->name=part; part=NULL; c->parent=n; c->next=n->children; n->children=c; *fresh=true; }
+        } else *fresh=false;
+        pe_reg_drop_string(part); if (!c) return NULL; n=c; path+=len;
+    }
+    return n;
+}
+static DWORD pe_reg_set(struct pe_reg_node *n, const uint16_t *name, DWORD type, const void *data, DWORD size, bool ansi)
+{
+    if ((size && !data) || ((type==1 || type==2 || type==7) && !ansi && (size&1))) return 87;
+    bool str=type==1 || type==2 || type==7; DWORD bytes=size; void *copy;
+    if (str && ansi) { int count=size ? MultiByteToWideChar(65001,8,data,size,NULL,0) : 0; if (size && !count) return 87; bytes=count*2; }
+    if (bytes > 0x7ffffff0u) return 87;
+    size_t allocation=(size_t)bytes+4;
+    copy=pe_raw_map(allocation); if (!copy) return 8;
+    if (str && ansi && size) MultiByteToWideChar(65001,8,data,size,copy,bytes/2);
+    else if (bytes) memcpy(copy,data,bytes);
+    if (str) {
+        uint16_t *w=copy; unsigned count=bytes/2;
+        if (!count || w[count-1]) w[count++]=0;
+        if (type==7 && (count<2 || w[count-2])) w[count++]=0;
+        bytes=count*2;
+    }
+    struct pe_reg_value *v=n->values; while(v && !pe_reg_equal(v->name,name)) v=v->next;
+    if (!v) { v=pe_raw_map(sizeof(*v)); if (!v) { raw_syscall3(SYS_munmap,(long)copy,allocation,0); return 8; }
+        v->name=pe_reg_string(name,false); if(!v->name) { raw_syscall3(SYS_munmap,(long)v,sizeof(*v),0); raw_syscall3(SYS_munmap,(long)copy,allocation,0); return 8; }
+        v->next=n->values; n->values=v;
+    } else if(v->data) raw_syscall3(SYS_munmap,(long)v->data,v->allocation,0);
+    v->data=copy; v->allocation=allocation; v->size=bytes; v->type=type; return 0;
+}
+static bool pe_reg_init(void)
+{
+    if (pe_reg_roots[0]) return true;
+    for(unsigned i=0;i<5;i++) if(!(pe_reg_roots[i]=pe_raw_map(sizeof(struct pe_reg_node)))) pe_loader_error("registry roots allocation failed");
+    const char *paths[]={"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion","SOFTWARE\\Microsoft\\Cryptography"};
+    for(unsigned i=0;i<2;i++) {
+        uint16_t *p=pe_reg_string(paths[i],true); bool fresh; struct pe_reg_node *n=p?pe_reg_walk(pe_reg_roots[2],p,true,&fresh):NULL; pe_reg_drop_string(p);
+        if(!n) pe_loader_error("registry seed allocation failed");
+        const char *names[]={"ProductName","CurrentVersion","CurrentBuild","CurrentBuildNumber","CurrentMajorVersionNumber","CurrentMinorVersionNumber","EditionID","InstallationType","DisplayVersion"};
+        const char *values[]={"Windows 10 Pro","6.3",PE_WIN_BUILD_STRING,PE_WIN_BUILD_STRING,"","","Professional","Client","22H2"};
+        for(unsigned j=0;j<(i?1:9);j++) {
+            const char *name=i?"MachineGuid":names[j], *value=i?"73b34075-94af-4b77-bcf1-c21a692c3a10":values[j];
+            uint16_t *w=pe_reg_string(name,true); DWORD number=j==4?PE_WIN_MAJOR:PE_WIN_MINOR;
+            DWORD r=w?pe_reg_set(n,w,(!i&&(j==4||j==5))?4:1,(!i&&(j==4||j==5))?(void *)&number:(void *)value,(!i&&(j==4||j==5))?4:cstring_length(value)+1,true):8;
+            pe_reg_drop_string(w); if(r) pe_loader_error("registry seed value allocation failed");
+        }
+    }
+    return true;
+}
+static struct pe_reg_node *pe_reg_lookup(HANDLE h, DWORD required)
+{
+    pe_reg_init(); uintptr_t x=(uintptr_t)h;
+    if(x>=0xffffffff80000000ULL && x<=0xffffffff80000005ULL && x!=0xffffffff80000004ULL) return pe_reg_roots[(unsigned)x==0x80000005?4:(unsigned)x-0x80000000];
+    for(struct pe_wait_handle *v=pe_wait_handles;v;v=v->next) if(v->value==h && v->object->kind==PE_REGKEY) {
+        if(v->object->u.reg.node->deleted) return NULL;
+        if((v->object->u.reg.access & required)!=required) return NULL;
+        return v->object->u.reg.node;
+    }
+    return NULL;
+}
+static DWORD pe_reg_error(HANDLE h)
+{ return pe_reg_lookup(h,0)?5:6; }
+static DWORD pe_reg_open(HANDLE h,const void *sub,DWORD options,DWORD access,HANDLE *out,DWORD *disp,bool create,bool ansi)
+{
+    PE_STATE_GUARD; DWORD saved=GetLastError(), result=0;
+    struct pe_reg_node *n=pe_reg_lookup(h,create?4:0);
+    if(!n) return pe_reg_error(h); if(!out || options>1) return 87;
+    uint16_t *w=pe_reg_string(sub,ansi); if(!w) {SetLastError(saved);return 8;}
+    bool fresh; n=pe_reg_walk(n,w,create,&fresh); pe_reg_drop_string(w);
+    if(!n) result=create?8:2;
+    else {
+        struct pe_wait_object *o=pe_raw_map(sizeof(*o));
+        if(!o) result=8; else {
+            o->kind=PE_REGKEY; o->u.reg.node=n; o->u.reg.access=access;
+            /* Expand generic rights; WOW64 view flags select the same tree. */
+            if(access&0x10000000) o->u.reg.access=0xf003f;
+            if(access&0x80000000) o->u.reg.access|=0x20019;
+            if(access&0x40000000) o->u.reg.access|=0x20006;
+            o->next=pe_wait_objects; pe_wait_objects=o;
+            HANDLE v=pe_wait_handle_new(o); if(!v) { pe_wait_reap(); result=8; } else { *out=v; if(disp)*disp=fresh?1:2; }
+        }
+    }
+    SetLastError(saved); return result;
+}
+static DWORD pe_reg_value_copy(struct pe_reg_value *v,DWORD *type,void *data,DWORD *size,bool ansi)
+{
+    if(data&&!size)return 87; if(type)*type=v->type;
+    bool str=v->type==1||v->type==2||v->type==7;
+    DWORD needed=ansi&&str?WideCharToMultiByte(65001,0,v->data,v->size/2,NULL,0,NULL,NULL):v->size;
+    if(!size)return 0; DWORD cap=*size; *size=needed;
+    if(!data)return 0; if(cap<needed)return 234;
+    if(ansi&&str)WideCharToMultiByte(65001,0,v->data,v->size/2,data,cap,NULL,NULL); else if(needed)memcpy(data,v->data,needed);
+    return 0;
+}
+static DWORD pe_reg_query(HANDLE h,const void *name,DWORD *reserved,DWORD *type,void *data,DWORD *size,bool ansi)
+{
+    PE_STATE_GUARD; if(reserved)return 87;
+    struct pe_reg_node *n=pe_reg_lookup(h,1); if(!n)return pe_reg_error(h);
+    DWORD saved=GetLastError(); uint16_t *w=pe_reg_string(name,ansi); if(!w){SetLastError(saved);return 8;}
+    struct pe_reg_value *v=n->values; while(v&&!pe_reg_equal(v->name,w))v=v->next; pe_reg_drop_string(w);
+    DWORD r=v?pe_reg_value_copy(v,type,data,size,ansi):2; SetLastError(saved); return r;
+}
+static DWORD pe_reg_write(HANDLE h,const void *name,DWORD reserved,DWORD type,const void *data,DWORD size,bool ansi)
+{
+    PE_STATE_GUARD; if(reserved)return 87; struct pe_reg_node *n=pe_reg_lookup(h,2); if(!n)return pe_reg_error(h);
+    DWORD saved=GetLastError(); uint16_t *w=pe_reg_string(name,ansi); DWORD r=w?pe_reg_set(n,w,type,data,size,ansi):8; pe_reg_drop_string(w); SetLastError(saved);return r;
+}
+__attribute__((ms_abi)) DWORD RegCloseKey(HANDLE h)
+{
+    PE_STATE_GUARD;
+    if((uintptr_t)h>=0xffffffff80000000ULL) return pe_reg_lookup(h,0)?0:6;
+    struct pe_wait_handle *v=pe_wait_handles;
+    while(v && v->value!=h)v=v->next;
+    if(!v || v->object->kind!=PE_REGKEY)return 6;
+    DWORD saved=GetLastError(); CloseHandle(h); SetLastError(saved);return 0;
+}
+__attribute__((ms_abi)) DWORD RegFlushKey(HANDLE h)
+{ PE_STATE_GUARD; return pe_reg_lookup(h,0)?0:6; }
+static DWORD pe_reg_name_copy(const uint16_t *w,void *out,DWORD *size,bool ansi)
+{
+    if(!size || !out)return 87;
+    DWORD n=ansi?WideCharToMultiByte(65001,0,w,-1,NULL,0,NULL,NULL):lstrlenW(w)+1;
+    DWORD cap=*size; *size=n-1; if(cap<n)return 234;
+    if(ansi)WideCharToMultiByte(65001,0,w,-1,out,cap,NULL,NULL);else memcpy(out,w,n*2);return 0;
+}
+static DWORD pe_reg_enum(HANDLE h,DWORD index,void *name,DWORD *len,DWORD *reserved,DWORD *type,void *data,DWORD *size,void *ft,bool key,bool ansi)
+{
+    PE_STATE_GUARD; if(reserved)return 87; struct pe_reg_node *n=pe_reg_lookup(h,key?8:1); if(!n)return pe_reg_error(h);
+    DWORD saved=GetLastError(),r;
+    if(key) {
+        n=n->children; while(n&&index--)n=n->next; if(!n)return 259;
+        r=pe_reg_name_copy(n->name,name,len,ansi);
+        if(ft)memset(ft,0,8);
+        if(data&&!size)r=87;
+        if(size) { DWORD cap=*size; *size=0; if(data) {if(!cap)r=234;else memset(data,0,ansi?1:2);} }
+    } else {
+        struct pe_reg_value *v=n->values;while(v&&index--)v=v->next;if(!v)return 259;
+        r=pe_reg_name_copy(v->name,name,len,ansi); DWORD q=pe_reg_value_copy(v,type,data,size,ansi);if(q)r=q;
+    }
+    SetLastError(saved);return r;
+}
+static DWORD pe_reg_info(HANDLE h,void *cls,DWORD *clen,DWORD *reserved,DWORD *sub,DWORD *maxsub,DWORD *maxcls,DWORD *vals,DWORD *maxname,DWORD *maxdata,DWORD *security,void *ft,bool ansi)
+{
+    PE_STATE_GUARD; if(reserved||(cls&&!clen))return 87;
+    struct pe_reg_node *n=pe_reg_lookup(h,1);if(!n)return pe_reg_error(h);
+    DWORD saved=GetLastError(),nc=0,nv=0,mc=0,mn=0,md=0;
+    for(struct pe_reg_node *c=n->children;c;c=c->next){nc++;DWORD l=ansi?WideCharToMultiByte(65001,0,c->name,-1,NULL,0,NULL,NULL)-1:lstrlenW(c->name);if(l>mc)mc=l;}
+    for(struct pe_reg_value *v=n->values;v;v=v->next){nv++;DWORD l=ansi?WideCharToMultiByte(65001,0,v->name,-1,NULL,0,NULL,NULL)-1:lstrlenW(v->name),bytes=0;pe_reg_value_copy(v,NULL,NULL,&bytes,ansi);if(l>mn)mn=l;if(bytes>md)md=bytes;}
+    if(sub)*sub=nc;if(maxsub)*maxsub=mc;if(maxcls)*maxcls=0;if(vals)*vals=nv;if(maxname)*maxname=mn;if(maxdata)*maxdata=md;
+    if(security)*security=0;if(ft)memset(ft,0,8);
+    DWORD r=0;if(clen){DWORD cap=*clen;*clen=0;if(cls){if(!cap)r=234;else memset(cls,0,ansi?1:2);}}
+    SetLastError(saved);return r;
+}
+static DWORD pe_reg_delete(HANDLE h,const void *name,bool key,bool ansi)
+{
+    PE_STATE_GUARD;struct pe_reg_node *n=pe_reg_lookup(h,key?4:2);if(!n)return pe_reg_error(h);
+    DWORD saved=GetLastError(),r=2;uint16_t *w=pe_reg_string(name,ansi);if(!w){SetLastError(saved);return 8;}
+    if(key){ bool fresh;struct pe_reg_node *c=pe_reg_walk(n,w,false,&fresh);
+        if(c && c!=n && c->parent){if(c->children)r=5;else{struct pe_reg_node **p=&c->parent->children;while(*p&&*p!=c)p=&(*p)->next;if(*p)*p=c->next;c->deleted=true;r=0;}}
+    }else{struct pe_reg_value **p=&n->values;while(*p&&!pe_reg_equal((*p)->name,w))p=&(*p)->next;if(*p){struct pe_reg_value *v=*p;*p=v->next;pe_reg_drop_string(v->name);raw_syscall3(SYS_munmap,(long)v->data,v->allocation,0);raw_syscall3(SYS_munmap,(long)v,sizeof(*v),0);r=0;}}
+    pe_reg_drop_string(w);SetLastError(saved);return r;
+}
+__attribute__((ms_abi)) DWORD RegOpenKeyExW(HANDLE h,const uint16_t *s,DWORD o,DWORD a,HANDLE *v)
+{ return pe_reg_open(h,s,o,a,v,NULL,false,false); }
+__attribute__((ms_abi)) DWORD RegCreateKeyExW(HANDLE h,const uint16_t *s,DWORD reserved,uint16_t *cls,DWORD o,DWORD a,void *security,HANDLE *v,DWORD *d)
+{ return reserved?87:pe_reg_open(h,s,o,a,v,d,true,false); }
+__attribute__((ms_abi)) DWORD RegQueryValueExW(HANDLE h,const uint16_t *n,DWORD *r,DWORD *t,void *d,DWORD *z)
+{ return pe_reg_query(h,n,r,t,d,z,false); }
+__attribute__((ms_abi)) DWORD RegSetValueExW(HANDLE h,const uint16_t *n,DWORD r,DWORD t,const void *d,DWORD z)
+{ return pe_reg_write(h,n,r,t,d,z,false); }
+__attribute__((ms_abi)) DWORD RegDeleteKeyW(HANDLE h,const uint16_t *n)
+{ return pe_reg_delete(h,n,true,false); }
+__attribute__((ms_abi)) DWORD RegDeleteValueW(HANDLE h,const uint16_t *n)
+{ return pe_reg_delete(h,n,false,false); }
+__attribute__((ms_abi)) DWORD RegEnumKeyExW(HANDLE h,DWORD i,uint16_t *n,DWORD *l,DWORD *r,uint16_t *c,DWORD *z,void *ft)
+{ return pe_reg_enum(h,i,n,l,r,NULL,c,z,ft,true,false); }
+__attribute__((ms_abi)) DWORD RegEnumValueW(HANDLE h,DWORD i,uint16_t *n,DWORD *l,DWORD *r,DWORD *t,void *d,DWORD *z)
+{ return pe_reg_enum(h,i,n,l,r,t,d,z,NULL,false,false); }
+__attribute__((ms_abi)) DWORD RegQueryInfoKeyW(HANDLE h,uint16_t *c,DWORD *l,DWORD *r,DWORD *s,DWORD *ms,DWORD *mc,DWORD *v,DWORD *mn,DWORD *md,DWORD *sd,void *ft)
+{ return pe_reg_info(h,c,l,r,s,ms,mc,v,mn,md,sd,ft,false); }
+__attribute__((ms_abi)) DWORD RegGetValueW(HANDLE h,const uint16_t *sub,const uint16_t *name,DWORD flags,DWORD *type,void *data,DWORD *size)
+{
+    PE_STATE_GUARD; DWORD saved=GetLastError(),cap=size?*size:0,r=0,t=0;
+    if(flags&~0x3001ffffu || ((flags&0x30000u)==0x30000u))r=87;
+    HANDLE opened=NULL;
+    if(!r)r=pe_reg_open(h,sub,0,1,&opened,NULL,false,false);
+    if(!r) {
+        r=pe_reg_query(opened,name,NULL,&t,NULL,NULL,false);
+        DWORD mask=flags&0xffffu;
+        if(!r && mask && mask!=0xffffu && !(mask & (t==1?2:t==2?4:t==3?8:t==4?16:t==7?32:t==11?64:1)))r=1630;
+        /* Environment is empty in this profile: expanding REG_EXPAND_SZ leaves
+         * unresolved references unchanged, as ExpandEnvironmentStrings does. */
+        if(!r)r=pe_reg_query(opened,name,NULL,&t,data,size,false);
+        if(type)*type=t==2&&!(flags&0x10000000u)?1:t;
+        RegCloseKey(opened);
+    }
+    if(r&&(flags&0x20000000u)&&data&&size)memset(data,0,cap);
+    SetLastError(saved);return r;
+}
+__attribute__((ms_abi)) DWORD RegOpenKeyExA(HANDLE h,const char *s,DWORD o,DWORD a,HANDLE *v)
+{ return pe_reg_open(h,s,o,a,v,NULL,false,true); }
+__attribute__((ms_abi)) DWORD RegCreateKeyExA(HANDLE h,const char *s,DWORD reserved,char *cls,DWORD o,DWORD a,void *security,HANDLE *v,DWORD *d)
+{ return reserved?87:pe_reg_open(h,s,o,a,v,d,true,true); }
+__attribute__((ms_abi)) DWORD RegQueryValueExA(HANDLE h,const char *n,DWORD *r,DWORD *t,void *d,DWORD *z)
+{ return pe_reg_query(h,n,r,t,d,z,true); }
+__attribute__((ms_abi)) DWORD RegSetValueExA(HANDLE h,const char *n,DWORD r,DWORD t,const void *d,DWORD z)
+{ return pe_reg_write(h,n,r,t,d,z,true); }
+__attribute__((ms_abi)) DWORD RegDeleteKeyA(HANDLE h,const char *n)
+{ return pe_reg_delete(h,n,true,true); }
+__attribute__((ms_abi)) DWORD RegDeleteValueA(HANDLE h,const char *n)
+{ return pe_reg_delete(h,n,false,true); }
+__attribute__((ms_abi)) DWORD RegEnumKeyExA(HANDLE h,DWORD i,char *n,DWORD *l,DWORD *r,char *c,DWORD *z,void *ft)
+{ return pe_reg_enum(h,i,n,l,r,NULL,c,z,ft,true,true); }
+__attribute__((ms_abi)) DWORD RegEnumValueA(HANDLE h,DWORD i,char *n,DWORD *l,DWORD *r,DWORD *t,void *d,DWORD *z)
+{ return pe_reg_enum(h,i,n,l,r,t,d,z,NULL,false,true); }
+__attribute__((ms_abi)) DWORD RegQueryInfoKeyA(HANDLE h,char *c,DWORD *l,DWORD *r,DWORD *s,DWORD *ms,DWORD *mc,DWORD *v,DWORD *mn,DWORD *md,DWORD *sd,void *ft)
+{ return pe_reg_info(h,c,l,r,s,ms,mc,v,mn,md,sd,ft,true); }
+__attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *name,DWORD flags,DWORD *type,void *data,DWORD *size)
+{
+    PE_STATE_GUARD; DWORD saved=GetLastError(),cap=size?*size:0,r=0,t=0;
+    if(flags&~0x3001ffffu || ((flags&0x30000u)==0x30000u))r=87;
+    HANDLE opened=NULL;
+    if(!r)r=pe_reg_open(h,sub,0,1,&opened,NULL,false,true);
+    if(!r) {
+        r=pe_reg_query(opened,name,NULL,&t,NULL,NULL,true);
+        DWORD mask=flags&0xffffu;
+        if(!r && mask && mask!=0xffffu && !(mask & (t==1?2:t==2?4:t==3?8:t==4?16:t==7?32:t==11?64:1)))r=1630;
+        /* Environment is empty in this profile: expanding REG_EXPAND_SZ leaves
+         * unresolved references unchanged, as ExpandEnvironmentStrings does. */
+        if(!r)r=pe_reg_query(opened,name,NULL,&t,data,size,true);
+        if(type)*type=t==2&&!(flags&0x10000000u)?1:t;
+        RegCloseKey(opened);
+    }
+    if(r&&(flags&0x20000000u)&&data&&size)memset(data,0,cap);
+    SetLastError(saved);return r;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RegCloseKey")) return RegCloseKey;
+    if (!by_ordinal && ascii_equal_ci(function, "RegFlushKey")) return RegFlushKey;
+    if (!by_ordinal && ascii_equal_ci(function, "RegOpenKeyExW")) return RegOpenKeyExW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegOpenKeyExA")) return RegOpenKeyExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegCreateKeyExW")) return RegCreateKeyExW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegCreateKeyExA")) return RegCreateKeyExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegQueryValueExW")) return RegQueryValueExW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegQueryValueExA")) return RegQueryValueExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegSetValueExW")) return RegSetValueExW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegSetValueExA")) return RegSetValueExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegDeleteKeyW")) return RegDeleteKeyW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegDeleteKeyA")) return RegDeleteKeyA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegDeleteValueW")) return RegDeleteValueW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegDeleteValueA")) return RegDeleteValueA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegEnumKeyExW")) return RegEnumKeyExW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegEnumKeyExA")) return RegEnumKeyExA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegEnumValueW")) return RegEnumValueW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegEnumValueA")) return RegEnumValueA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegQueryInfoKeyW")) return RegQueryInfoKeyW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegQueryInfoKeyA")) return RegQueryInfoKeyA;
+    if (!by_ordinal && ascii_equal_ci(function, "RegGetValueW")) return RegGetValueW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegGetValueA")) return RegGetValueA;
     if (!by_ordinal && ascii_equal_ci(function, "PathIsNetworkPathW")) return PathIsNetworkPathW;
     if (!by_ordinal && ascii_equal_ci(function, "PathIsNetworkPathA")) return PathIsNetworkPathA;
     if (!by_ordinal && ascii_equal_ci(function, "GetDriveTypeW")) return GetDriveTypeW;
