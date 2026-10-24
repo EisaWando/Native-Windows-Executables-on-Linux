@@ -3426,10 +3426,21 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 }
 
 #include "gui/bridge.inc"
+#include "bridge/crypto.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptOpenAlgorithmProvider")) return BCryptOpenAlgorithmProvider;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptCloseAlgorithmProvider")) return BCryptCloseAlgorithmProvider;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptGetProperty")) return BCryptGetProperty;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptCreateHash")) return BCryptCreateHash;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptHashData")) return BCryptHashData;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptFinishHash")) return BCryptFinishHash;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptDestroyHash")) return BCryptDestroyHash;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptDuplicateHash")) return BCryptDuplicateHash;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptHash")) return BCryptHash;
+    if (!by_ordinal && ascii_equal_ci(function, "BCryptGenRandom")) return BCryptGenRandom;
     if (!by_ordinal && ascii_equal_ci(function, "CreateWindowExW")) return CreateWindowExW;
     if (!by_ordinal && ascii_equal_ci(function, "DestroyWindow")) return DestroyWindow;
     if (!by_ordinal && ascii_equal_ci(function, "DefWindowProcW")) return DefWindowProcW;

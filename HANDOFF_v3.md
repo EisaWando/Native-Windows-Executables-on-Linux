@@ -44,6 +44,30 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: Notepad++ continuation, round 1 (2026-10-24)
+
+Implemented original streaming SHA-256 (FIPS 180-4), HMAC (RFC 2104) and BCrypt
+provider/property/create/update/finish/destroy/close, duplicate/reusable/one-shot
+hash and system RNG exports in bridge/crypto.inc. SHA256 only; unsupported
+algorithms/providers fail explicitly. NTSTATUS returns preserve last error.
+Handles are monotonic, typed and mmap-backed in 0x46000000–0x47ffffff; global
+lock pins lifetime, per-object futex locks serialize hashing without monopolizing
+the runtime lock. Closing a provider does not invalidate existing hash state.
+No AF_ALG dependency, external crypto library, Wine/ReactOS code or kernel change.
+References: https://csrc.nist.gov/pubs/fips/180-4/upd1/final and
+https://www.rfc-editor.org/rfc/rfc4231 . Constants generated from the standard's
+prime-root definition. Tests cover standard empty/abc/million-a SHA256 vectors,
+RFC HMAC short/long keys, duplication, reusable reset, invalid/stale handles,
+property sizes, provider lifetime, random bytes and last-error preservation.
+
+`bash tests/run_all.sh > /tmp/npp-round1-suite.log 2>&1` exited 0: crypto and all
+functional fixtures pass, 20/20 thread stress runs and diagnostics pass; display
+tests explicitly skipped in this headless run. `git diff --check` passes.
+`size`: text 168652, data 0, bss 68336; PT_LOAD extent 244464 / 1048576.
+Notepad++ now exits 127 at dwmapi.dll!DwmGetColorizationColor,
+ret=0x140018691 (theme initialization); HMAC-SHA256 startup got past bcrypt.
+Next round handles theme/color profile and resize flicker. No push.
+
 ### Latest: first visible original USER32/GDI window (2026-10-24)
 
 The owner approved building the Windows graphics layer from scratch. Implemented
