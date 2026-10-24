@@ -3428,10 +3428,20 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/bridge.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
+#include "bridge/directories.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "MulDiv")) return MulDiv;
+    if (!by_ordinal && ascii_equal_ci(function, "SetCurrentDirectoryW")) return SetCurrentDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetCurrentDirectoryA")) return SetCurrentDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateDirectoryW")) return CreateDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateDirectoryA")) return CreateDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "RemoveDirectoryW")) return RemoveDirectoryW;
+    if (!by_ordinal && ascii_equal_ci(function, "RemoveDirectoryA")) return RemoveDirectoryA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFullPathNameW")) return GetFullPathNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFullPathNameA")) return GetFullPathNameA;
     if (!by_ordinal && ascii_equal_ci(function, "DwmGetColorizationColor")) return DwmGetColorizationColor;
     if (!by_ordinal && ascii_equal_ci(function, "DwmIsCompositionEnabled")) return DwmIsCompositionEnabled;
     if (!by_ordinal && ascii_equal_ci(function, "IsThemeActive")) return IsThemeActive;

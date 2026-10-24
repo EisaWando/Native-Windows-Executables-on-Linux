@@ -44,6 +44,28 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: Notepad++ continuation, round 3 (2026-10-24)
+
+bridge/directories.inc adds A/W SetCurrentDirectory, CreateDirectory,
+RemoveDirectory and GetFullPathName using the existing Z: mapping. Full paths
+normalize dot/parent segments syntactically without requiring the target to
+exist, report required sizes and return file-part pointers into caller buffers.
+Cwd is process-wide (Linux chdir matches this model). Unsupported drives and
+security attributes fail explicitly. Added checked/rounded signed MulDiv for
+Notepad++ DPI/font initialization. Tests/directories.c verifies cwd restore,
+path/size semantics, native directory creation/removal and nonempty errors,
+plus rounding/overflow/divide-by-zero. An initial fixture build required moving
+a large local buffer to static storage to avoid an unresolved MinGW chkstk.
+
+`bash tests/run_all.sh > /tmp/npp-round3-suite.log 2>&1` -> exit 0; all functional
+fixtures including directories pass, 20/20 thread stress and diagnostics pass.
+Visible tests explicitly skipped (previous round verified the unchanged GUI).
+`git diff --check` passes; bridge PT_LOAD extent 252656 / 1048576 bytes.
+Notepad++ now exits 127 at ADVAPI32!AllocateAndInitializeSid,
+ret=0x1400d8285, authority 5, subauthorities 32/544 (Administrators). Disassembly
+shows CheckTokenMembership(NULL, sid, ...) then FreeSid. Next batch handles SID
+and read-only process-token identity. No kernel changes/reload/push.
+
 ### Latest: Notepad++ continuation, round 2 (2026-10-24)
 
 Added DwmGetColorizationColor (fixed opaque ARGB ff0078d4 accent),
