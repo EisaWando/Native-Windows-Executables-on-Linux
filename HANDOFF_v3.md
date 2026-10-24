@@ -44,6 +44,31 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: Notepad++ continuation, round 2 (2026-10-24)
+
+Added DwmGetColorizationColor (fixed opaque ARGB ff0078d4 accent),
+DwmIsCompositionEnabled (false: no Windows compositor), IsThemeActive /
+IsAppThemed / GetThemeAppProperties (classic/no native Windows theme engine),
+and SHLWAPI ColorRGBToHLS/ColorHLSToRGB/ColorAdjustLuma. HLS uses 0..240;
+luminance adjustment uses documented 0.1-percent units. Tests/colors.c covers
+primary colors, quantized roundtrips, endpoints, profile values and validation.
+
+Owner observed demo resize flicker. gui/host.c now disables automatic X11
+background clearing, requests NorthWest bit gravity to retain existing pixels,
+coalesces pending ConfigureNotify events, skips intermediate expose events,
+uploads to a server-side pixmap and presents via a single XCopyArea. This avoids
+visible partial XPutImage requests. It reduces known flicker sources; subjective
+smoothness during interactive dragging still needs owner feedback. Display tests
+now issue a burst of resizes before checking final pixels/repaint.
+
+`PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/npp-round2-suite.log 2>&1` -> exit 0.
+All functional fixtures including crypto/colors/windows pass, actual X-server
+pixel/text/resize/key/close checks pass, 20/20 thread stress and both diagnostic
+fixtures pass. `git diff --check` passes. Bridge text 171304, bss 68336;
+PT_LOAD extent 248560 / 1048576. Notepad++ now exits 127 at
+KERNEL32!SetCurrentDirectoryW ret=0x14020e73c, portable directory on Z:.
+It generated contextMenu.xml, left untracked. No kernel changes/reload/push.
+
 ### Latest: Notepad++ continuation, round 1 (2026-10-24)
 
 Implemented original streaming SHA-256 (FIPS 180-4), HMAC (RFC 2104) and BCrypt

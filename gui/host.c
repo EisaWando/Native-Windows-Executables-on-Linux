@@ -20,6 +20,8 @@ struct surface {
 	uint64_t id;
 	Window window;
 	GC gc;
+	Pixmap backbuffer;
+	int back_width, back_height;
 	XImage *image;
 	int width, height;
 	FT_Face face;
@@ -305,6 +307,8 @@ static void event_packet(struct pg_packet *p)
 		p->flags = 0;
 		switch (e.type) {
 		case Expose:
+			if (e.xexpose.count)
+				break;
 			p->a = 0xf;
 			return;
 		case ClientMessage:
@@ -312,7 +316,12 @@ static void event_packet(struct pg_packet *p)
 				break;
 			p->a = 0x10;
 			return;
-		case ConfigureNotify:
+		case ConfigureNotify: {
+			XEvent latest;
+			while (XCheckTypedWindowEvent(display, s->window,
+						      ConfigureNotify, &latest))
+				e = latest;
+		}
 			if (e.xconfigure.width == s->width &&
 			    e.xconfigure.height == s->height)
 				break;
@@ -426,6 +435,15 @@ int main(void)
 					display, DefaultRootWindow(display),
 					p.a, p.b, p.c, p.d, 0, 0, 0);
 				s->gc = XCreateGC(display, s->window, 0, NULL);
+				XSetWindowBackgroundPixmap(display, s->window,
+							   None);
+				XSetWindowAttributes retained = {
+					.bit_gravity = NorthWestGravity
+				};
+				XChangeWindowAttributes(display, s->window,
+							CWBitGravity,
+							&retained);
+				XSetGraphicsExposures(display, s->gc, False);
 				XStoreName(display, s->window, p.text);
 				XSetWMProtocols(display, s->window, &wm_delete,
 						1);
@@ -448,6 +466,8 @@ int main(void)
 					link = &(*link)->next;
 				*link = s->next;
 				XDestroyWindow(display, s->window);
+				if (s->backbuffer)
+					XFreePixmap(display, s->backbuffer);
 				XFreeGC(display, s->gc);
 				XDestroyImage(s->image);
 				if (s->face)
@@ -517,8 +537,29 @@ int main(void)
 				text_out(s, &p);
 				break;
 			case PG_PRESENT:
-				XPutImage(display, s->window, s->gc, s->image,
-					  0, 0, 0, 0, s->width, s->height);
+				if (!s->backbuffer ||
+				    s->back_width != s->width ||
+				    s->back_height != s->height) {
+					if (s->backbuffer)
+						XFreePixmap(display,
+							    s->backbuffer);
+					s->backbuffer = XCreatePixmap(
+						display, s->window, s->width,
+						s->height,
+						DefaultDepth(display,
+							     DefaultScreen(
+								     display)));
+					s->back_width = s->width;
+					s->back_height = s->height;
+				}
+				/* Upload may span multiple X requests; only the final CopyArea
+                 * changes visible pixels, so partial frames are never shown. */
+				XPutImage(display, s->backbuffer, s->gc,
+					  s->image, 0, 0, 0, 0, s->width,
+					  s->height);
+				XCopyArea(display, s->backbuffer, s->window,
+					  s->gc, 0, 0, s->width, s->height, 0,
+					  0);
 				break;
 			case PG_RESIZE:
 				p.status = resize_surface(s, p.c, p.d);

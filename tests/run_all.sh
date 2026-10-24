@@ -24,8 +24,8 @@ while read -r kind offset address physical file_size memory_size rest; do
 done <<< "$headers"
 if ((bridge_segments == 0)); then echo 'FAIL bridge has no PT_LOAD segments'; exit 1; fi
 printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
-for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto; do
-    x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt || exit 1
+for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors; do
+    x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme || exit 1
 done
 x86_64-w64-mingw32-gcc "${flags[@]}" -o "$work/hello.exe" tests/hello42.c -lkernel32 || exit 1
 failures=0
@@ -68,6 +68,7 @@ if [[ ${PE_GUI_TEST:-0} == 1 ]]; then
 else
     echo 'SKIP visible windows (run PE_GUI_TEST=1 bash tests/run_all.sh on a display)'
 fi
+check_pe tests/colors.exe 0 'colors ok' timeout 15s tests/colors.exe
 check_pe tests/crypto.exe 0 'crypto ok' timeout 15s tests/crypto.exe
 check_pe tests/registry.exe 0 'registry ok' timeout 15s tests/registry.exe
 check_pe tests/calendar.exe 0 'calendar ok' timeout 15s tests/calendar.exe

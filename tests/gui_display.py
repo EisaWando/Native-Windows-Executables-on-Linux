@@ -112,8 +112,9 @@ def run_demo(display, close_method, artifact=False):
             with Path('/tmp/pe-window-demo.ppm').open('wb') as out:
                 out.write(b'P6\n560 240\n255\n')
                 out.write(bytes(channel for rgb in pixels for channel in ((rgb>>16)&255,(rgb>>8)&255,rgb&255)))
-        resize(display, window, 640, 300)
-        flush(display, 0)
+        for width, height in [(600,260),(500,220),(620,280),(540,250),(640,300)]:
+            resize(display, window, width, height)
+            flush(display, 0)
         time.sleep(.3)
         pixels = screenshot(display, window, 640, 300)
         assert pixels[280*640+620] == 0x182030, 'new area not repainted after resize'

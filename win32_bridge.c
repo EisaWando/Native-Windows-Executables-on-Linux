@@ -3427,10 +3427,19 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 
 #include "gui/bridge.inc"
 #include "bridge/crypto.inc"
+#include "bridge/colors.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "DwmGetColorizationColor")) return DwmGetColorizationColor;
+    if (!by_ordinal && ascii_equal_ci(function, "DwmIsCompositionEnabled")) return DwmIsCompositionEnabled;
+    if (!by_ordinal && ascii_equal_ci(function, "IsThemeActive")) return IsThemeActive;
+    if (!by_ordinal && ascii_equal_ci(function, "IsAppThemed")) return IsAppThemed;
+    if (!by_ordinal && ascii_equal_ci(function, "GetThemeAppProperties")) return GetThemeAppProperties;
+    if (!by_ordinal && ascii_equal_ci(function, "ColorRGBToHLS")) return ColorRGBToHLS;
+    if (!by_ordinal && ascii_equal_ci(function, "ColorHLSToRGB")) return ColorHLSToRGB;
+    if (!by_ordinal && ascii_equal_ci(function, "ColorAdjustLuma")) return ColorAdjustLuma;
     if (!by_ordinal && ascii_equal_ci(function, "BCryptOpenAlgorithmProvider")) return BCryptOpenAlgorithmProvider;
     if (!by_ordinal && ascii_equal_ci(function, "BCryptCloseAlgorithmProvider")) return BCryptCloseAlgorithmProvider;
     if (!by_ordinal && ascii_equal_ci(function, "BCryptGetProperty")) return BCryptGetProperty;
