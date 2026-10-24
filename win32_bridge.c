@@ -2001,8 +2001,37 @@ static void pe_tls_notify(DWORD reason);
 __attribute__((ms_abi, noreturn)) void ExitThread(DWORD code);
 static struct pe_thread *pe_current_thread(void)
 { return *(struct pe_thread **)(pe_current_teb()+0x1700); }
+struct pe_waiter {
+    struct pe_wait_object **objects; unsigned count; bool all, complete;
+    uint32_t tid; uint64_t deadline; DWORD result; struct pe_waiter *next;
+};
+static struct pe_waiter *pe_pending_waiters;
+static bool pe_wait_ready(struct pe_wait_object *o, uint32_t tid);
+static bool pe_wait_consume(struct pe_wait_object *o, uint32_t tid);
+static uint64_t pe_monotonic_ns(void);
+static bool pe_wait_satisfy(struct pe_waiter *w)
+{
+    bool ready = w->all; unsigned first = w->count;
+    for (unsigned i = 0; i < w->count; i++) {
+        bool signaled = pe_wait_ready(w->objects[i], w->tid);
+        if (w->all) ready &= signaled;
+        else if (signaled && first == w->count) { first = i; ready = true; }
+    }
+    if (!ready) return false;
+    w->result = w->all ? 0 : first;
+    for (unsigned i = 0; i < w->count; i++) if (w->all || i == first)
+        if (pe_wait_consume(w->objects[i], w->tid) && w->result < 0x80) w->result = 0x80+i;
+    w->complete = true; return true;
+}
 static void pe_wait_changed(void)
 {
+    /* Satisfy registered waits atomically with signaling, before a subsequent
+     * ResetEvent or a second auto-event signal can lose a granted wake. */
+    uint64_t now = pe_pending_waiters ? pe_monotonic_ns() : 0;
+    for (struct pe_waiter *w = pe_pending_waiters; w; w = w->next) if (!w->complete) {
+        if (w->deadline != UINT64_MAX && now >= w->deadline) { w->result = 0x102; w->complete = true; }
+        else pe_wait_satisfy(w);
+    }
     __atomic_add_fetch(&pe_wait_sequence, 1, __ATOMIC_RELEASE);
     raw_syscall6(SYS_futex, (long)&pe_wait_sequence, 129, INT32_MAX, 0, 0, 0);
 }
@@ -2124,29 +2153,23 @@ __attribute__((ms_abi)) DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE
 {
     (void)alertable; /* APC delivery is not implemented; QueueUserAPC stays unknown. */
     if (!count || count > 64 || !handles) { SetLastError(87); return UINT32_MAX; }
-    struct pe_wait_object *objects[64]; unsigned pinned = 0; DWORD result = UINT32_MAX;
-    uint32_t tid = GetCurrentThreadId(); uint64_t deadline = timeout == UINT32_MAX ? UINT64_MAX : pe_monotonic_ns()+timeout*1000000ULL;
+    struct pe_wait_object *objects[64]; unsigned pinned = 0;
+    uint64_t deadline = timeout == UINT32_MAX ? UINT64_MAX : pe_monotonic_ns()+timeout*1000000ULL;
+    struct pe_waiter w = {objects, count, all != 0, false, GetCurrentThreadId(), deadline, UINT32_MAX, NULL};
+    bool linked = false;
     PE_STATE_GUARD;
     for (unsigned i = 0; i < count; i++) {
         objects[i] = pe_wait_lookup(handles[i], 0); if (!objects[i]) goto out;
-        for (unsigned j = 0; j < i; j++) if (objects[j] == objects[i]) { SetLastError(87); goto out; }
+        for (unsigned j = 0; j < i; j++)
+            if (handles[j] == handles[i] || (all && objects[j] == objects[i])) { SetLastError(87); goto out; }
         objects[i]->refs++; pinned++;
     }
+    if (pe_wait_satisfy(&w)) goto out;
+    w.next = pe_pending_waiters; pe_pending_waiters = &w; linked = true;
     for (;;) {
-        bool ready = all; unsigned first = count;
-        for (unsigned i = 0; i < count; i++) {
-            bool signaled = pe_wait_ready(objects[i], tid);
-            if (all) ready &= signaled;
-            else if (signaled && first == count) { first = i; ready = true; }
-        }
-        if (ready) {
-            result = all ? 0 : first;
-            for (unsigned i = 0; i < count; i++) if (all || i == first)
-                if (pe_wait_consume(objects[i], tid) && result < 0x80) result = 0x80+i;
-            break;
-        }
+        if (w.complete) break;
         uint64_t now = pe_monotonic_ns();
-        if (now >= deadline) { result = 0x102; break; }
+        if (now >= deadline) { w.result = 0x102; break; }
         uint32_t seq = __atomic_load_n(&pe_wait_sequence, __ATOMIC_ACQUIRE);
         struct pe_timespec ts = {(deadline-now)/1000000000ULL, (deadline-now)%1000000000ULL};
         pe_state_leave(&pe_guard);
@@ -2155,9 +2178,15 @@ __attribute__((ms_abi)) DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE
         if (r < 0 && r != -11 && r != -4 && r != -110) { SetLastError(87); break; }
     }
 out:
+    if (linked) {
+        struct pe_waiter **p = &pe_pending_waiters;
+        while (*p && *p != &w) p = &(*p)->next;
+        if (*p) *p = w.next;
+    }
     for (unsigned i = 0; i < pinned; i++) objects[i]->refs--;
-    pe_wait_reap(); return result;
+    pe_wait_reap(); return w.result;
 }
+
 __attribute__((ms_abi)) DWORD WaitForMultipleObjects(DWORD n, const HANDLE *h, BOOL all, DWORD timeout)
 { return WaitForMultipleObjectsEx(n, h, all, timeout, 0); }
 __attribute__((ms_abi)) DWORD WaitForSingleObjectEx(HANDLE h, DWORD timeout, BOOL alertable)
@@ -2414,7 +2443,6 @@ __attribute__((ms_abi)) HANDLE CreateFileW(const uint16_t *path, DWORD access, D
     case 5: if (!(access & 0x40000000)) { SetLastError(87); return (HANDLE)(intptr_t)-1; } flags |= 0x200; break;
     default: SetLastError(87); return (HANDLE)(intptr_t)-1;
     }
-    PE_STATE_GUARD;
     struct stat s; bool exists = !raw_syscall4(SYS_newfstatat, -100, (long)linux_path, (long)&s, 0);
     long fd = raw_syscall4(SYS_openat, -100, (long)linux_path, flags|0x80000, 0666);
     if (fd < 0) { SetLastError(pe_file_error(fd)); return (HANDLE)(intptr_t)-1; }
