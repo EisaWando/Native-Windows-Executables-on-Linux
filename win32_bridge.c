@@ -2817,9 +2817,106 @@ __attribute__((ms_abi)) BOOL GetFileInformationByHandle(HANDLE h, struct pe_file
         s.st_dev, (uint64_t)s.st_size >> 32, s.st_size, s.st_nlink, (uint64_t)s.st_ino >> 32, s.st_ino}; return 1;
 }
 
+struct pe_system_time { uint16_t year, month, weekday, day, hour, minute, second, millis; };
+static bool pe_leap(unsigned year) { return !(year%4) && (year%100 || !(year%400)); }
+static uint64_t pe_days_before_year(unsigned year)
+{ uint64_t y = year-1; return (year-1601ULL)*365+y/4-y/100+y/400-388; }
+__attribute__((ms_abi)) BOOL FileTimeToSystemTime(const struct pe_filetime *file, struct pe_system_time *out)
+{
+    if (!file || !out) { SetLastError(87); return 0; }
+    uint64_t ticks = ((uint64_t)file->high << 32) | file->low;
+    if (ticks >> 63) { SetLastError(87); return 0; }
+    uint64_t seconds = ticks/10000000, days = seconds/86400, remainder = seconds%86400;
+    unsigned low = 1601, high = 30829;
+    while (low+1 < high) { unsigned mid = (low+high)/2; if (pe_days_before_year(mid) <= days) low = mid; else high = mid; }
+    if (low > 30827) { SetLastError(87); return 0; }
+    unsigned day = days-pe_days_before_year(low), month = 1;
+    static const unsigned lengths[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    for (;;) {
+        unsigned length = lengths[month-1]+(month == 2 && pe_leap(low));
+        if (day < length) break; day -= length; month++;
+    }
+    *out = (struct pe_system_time){low, month, (days+1)%7, day+1, remainder/3600,
+        (remainder%3600)/60, remainder%60, (ticks%10000000)/10000}; return 1;
+}
+__attribute__((ms_abi)) BOOL SystemTimeToFileTime(const struct pe_system_time *time, struct pe_filetime *out)
+{
+    if (!time || !out || time->year < 1601 || time->year > 30827 || time->month < 1 || time->month > 12 ||
+        time->hour > 23 || time->minute > 59 || time->second > 59 || time->millis > 999) { SetLastError(87); return 0; }
+    static const unsigned lengths[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    unsigned month_days = lengths[time->month-1]+(time->month == 2 && pe_leap(time->year));
+    if (!time->day || time->day > month_days) { SetLastError(87); return 0; }
+    uint64_t days = pe_days_before_year(time->year);
+    for (unsigned m = 1; m < time->month; m++) days += lengths[m-1]+(m == 2 && pe_leap(time->year));
+    days += time->day-1;
+    uint64_t ticks = (days*86400+time->hour*3600+time->minute*60+time->second)*10000000+time->millis*10000;
+    *out = (struct pe_filetime){ticks, ticks >> 32}; return 1;
+}
+__attribute__((ms_abi)) int32_t CompareFileTime(const struct pe_filetime *a, const struct pe_filetime *b)
+{
+    if (!a || !b) { SetLastError(87); return 0; }
+    uint64_t x = ((uint64_t)a->high << 32) | a->low, y = ((uint64_t)b->high << 32) | b->low;
+    return x == y ? 0 : x < y ? -1 : 1;
+}
+__attribute__((ms_abi)) void GetSystemTime(struct pe_system_time *out)
+{
+    if (!out) { SetLastError(87); return; }
+    struct pe_timespec ts; raw_syscall3(SYS_clock_gettime, 0, (long)&ts, 0);
+    struct pe_filetime ft = pe_stat_time(ts.tv_sec, ts.tv_nsec); FileTimeToSystemTime(&ft, out);
+}
+/* Deterministic UTC profile until native timezone/DST data are implemented. */
+__attribute__((ms_abi)) void GetLocalTime(struct pe_system_time *out) { GetSystemTime(out); }
+__attribute__((ms_abi)) BOOL FileTimeToLocalFileTime(const struct pe_filetime *a, struct pe_filetime *b)
+{ if (!a || !b) { SetLastError(87); return 0; } *b = *a; return 1; }
+__attribute__((ms_abi)) BOOL LocalFileTimeToFileTime(const struct pe_filetime *a, struct pe_filetime *b)
+{ return FileTimeToLocalFileTime(a, b); }
+__attribute__((ms_abi)) DWORD GetTimeZoneInformation(void *out)
+{
+    if (!out) { SetLastError(87); return UINT32_MAX; }
+    memset(out, 0, 172);
+    const uint16_t name[4] = {'U','T','C',0};
+    memcpy((char *)out+4, name, sizeof(name)); memcpy((char *)out+88, name, sizeof(name)); return 0;
+}
+
+struct pe_timezone {
+    int32_t bias; uint16_t standard_name[32]; struct pe_system_time standard_date; int32_t standard_bias;
+    uint16_t daylight_name[32]; struct pe_system_time daylight_date; int32_t daylight_bias;
+};
+_Static_assert(sizeof(struct pe_timezone) == 172, "TIME_ZONE_INFORMATION layout");
+static BOOL pe_system_time_zone_shift(const struct pe_timezone *zone, const struct pe_system_time *source,
+    struct pe_system_time *out, bool to_utc)
+{
+    if (!source || !out) { SetLastError(87); return 0; }
+    if (zone && (zone->standard_date.month || zone->daylight_date.month)) { SetLastError(50); return 0; }
+    struct pe_filetime ft;
+    if (!SystemTimeToFileTime(source, &ft)) return 0;
+    int64_t value = ((uint64_t)ft.high << 32) | ft.low;
+    int64_t delta = zone ? ((int64_t)zone->bias+zone->standard_bias)*600000000LL : 0;
+    if (!to_utc) delta = -delta;
+    if ((delta > 0 && value > INT64_MAX-delta) || (delta < 0 && value < -delta)) { SetLastError(87); return 0; }
+    value += delta; ft = (struct pe_filetime){value, (uint64_t)value >> 32};
+    return FileTimeToSystemTime(&ft, out);
+}
+__attribute__((ms_abi)) BOOL SystemTimeToTzSpecificLocalTime(const struct pe_timezone *zone,
+    const struct pe_system_time *utc, struct pe_system_time *local)
+{ return pe_system_time_zone_shift(zone, utc, local, false); }
+__attribute__((ms_abi)) BOOL TzSpecificLocalTimeToSystemTime(const struct pe_timezone *zone,
+    const struct pe_system_time *local, struct pe_system_time *utc)
+{ return pe_system_time_zone_shift(zone, local, utc, true); }
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "SystemTimeToTzSpecificLocalTime")) return SystemTimeToTzSpecificLocalTime;
+    if (!by_ordinal && ascii_equal_ci(function, "TzSpecificLocalTimeToSystemTime")) return TzSpecificLocalTimeToSystemTime;
+    if (!by_ordinal && ascii_equal_ci(function, "FileTimeToSystemTime")) return FileTimeToSystemTime;
+    if (!by_ordinal && ascii_equal_ci(function, "SystemTimeToFileTime")) return SystemTimeToFileTime;
+    if (!by_ordinal && ascii_equal_ci(function, "CompareFileTime")) return CompareFileTime;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemTime")) return GetSystemTime;
+    if (!by_ordinal && ascii_equal_ci(function, "GetLocalTime")) return GetLocalTime;
+    if (!by_ordinal && ascii_equal_ci(function, "FileTimeToLocalFileTime")) return FileTimeToLocalFileTime;
+    if (!by_ordinal && ascii_equal_ci(function, "LocalFileTimeToFileTime")) return LocalFileTimeToFileTime;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTimeZoneInformation")) return GetTimeZoneInformation;
     if (!by_ordinal && ascii_equal_ci(function, "CopyFileW")) return CopyFileW;
     if (!by_ordinal && ascii_equal_ci(function, "CopyFileA")) return CopyFileA;
     if (!by_ordinal && ascii_equal_ci(function, "DeleteFileA")) return DeleteFileA;
