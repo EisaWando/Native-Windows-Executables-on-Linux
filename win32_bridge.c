@@ -229,6 +229,8 @@ __attribute__((naked)) static void sigreturn_restorer(void)
 	__asm__ volatile ("mov $15, %rax\n\tsyscall");
 }
 
+static bool diagnostic_read(uintptr_t addr, void *out, size_t size);
+
 static void crash_handler(int signal, siginfo_t *info, void *context)
 {
 	ucontext_t *uc = context;
@@ -236,6 +238,7 @@ static void crash_handler(int signal, siginfo_t *info, void *context)
 	uintptr_t stack;
 	int i;
 
+	raw_puts("BRIDGE: crash tid="); raw_uint(raw_syscall3(SYS_gettid, 0, 0, 0)); raw_puts("\n");
 	raw_puts("BRIDGE: SIGSEGV signal="); raw_hex(signal);
 	raw_puts(" addr="); raw_hex((uintptr_t)info->si_addr);
 	raw_puts("\nBRIDGE: RIP="); raw_hex(g[REG_RIP]);
@@ -261,19 +264,20 @@ static void crash_handler(int signal, siginfo_t *info, void *context)
 	stack = g[REG_RSP];
 	for (i = 0; i < 16; i++) {
 		raw_puts("  "); raw_hex(stack + i * sizeof(uint64_t));
-		raw_puts(": "); raw_hex(((volatile uint64_t *)stack)[i]);
+		raw_puts(": "); uint64_t value;
+        if (diagnostic_read(stack+i*8, &value, 8)) raw_hex(value); else raw_puts("<unreadable>");
 		raw_puts("\n");
 	}
 	dump_maps();
-	raw_syscall3(SYS_exit_group, 128 + SIGSEGV, 0, 0);
+	raw_syscall3(SYS_exit_group, 128 + signal, 0, 0);
 }
 
-static void install_crash_handler(void)
+static void install_thread_crash_handler(void *memory, size_t bytes)
 {
 	struct kernel_stack stack = {
-		.sp = crash_stack,
+		.sp = memory,
 		.flags = 0,
-		.size = sizeof(crash_stack),
+		.size = bytes,
 	};
 	struct kernel_sigaction action = {
 		.handler = crash_handler,
@@ -285,7 +289,10 @@ static void install_crash_handler(void)
 	raw_syscall3(SYS_sigaltstack, (long)&stack, 0, 0);
 	raw_syscall4(SYS_rt_sigaction, SIGSEGV, (long)&action, 0,
 		     sizeof(action.mask));
+    raw_syscall4(SYS_rt_sigaction, SIGILL, (long)&action, 0, sizeof(action.mask));
+    raw_syscall4(SYS_rt_sigaction, SIGBUS, (long)&action, 0, sizeof(action.mask));
 }
+static void install_crash_handler(void) { install_thread_crash_handler(crash_stack, sizeof(crash_stack)); }
 
 __attribute__((ms_abi)) void SetLastError(DWORD err);
 
@@ -1948,9 +1955,408 @@ __attribute__((ms_abi)) uint16_t *PathRemoveBackslashW(uint16_t *p)
     return p+n;
 }
 
+/* Kernel-style synchronization objects, in a range separate from files/GDI. */
+enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE };
+struct pe_thread;
+struct pe_wait_object {
+    unsigned kind, refs; bool named; uint16_t name[256];
+    struct pe_wait_object *next;
+    union {
+        struct pe_thread *thread;
+        struct { bool manual, signaled; } event;
+        struct { uint32_t owner, recursion; bool abandoned; } mutex;
+        struct { int32_t count, max; } semaphore;
+    } u;
+};
+struct pe_wait_handle { HANDLE value; struct pe_wait_object *object; struct pe_wait_handle *next; };
+struct pe_thread {
+    uintptr_t teb; /* offset 0 is consumed by the assembly clone child path */
+    struct pe_wait_object *object;
+    void *stack, *altstack, *tls_allocation, *tls_array;
+    size_t stack_size, tls_size;
+    DWORD (__attribute__((ms_abi)) *start)(void *);
+    void *parameter; int32_t kernel_tid;
+    DWORD exit_code; unsigned suspended; bool done, running_ref, main_thread;
+};
+_Static_assert(offsetof(struct pe_thread, teb) == 0, "clone bootstrap TEB offset");
+static struct pe_wait_object *pe_wait_objects;
+static struct pe_wait_handle *pe_wait_handles;
+static uint32_t pe_wait_sequence, pe_next_wait_handle;
+static bool pe_thread_tls_init(struct pe_thread *t);
+static void pe_tls_notify(DWORD reason);
+__attribute__((ms_abi, noreturn)) void ExitThread(DWORD code);
+static struct pe_thread *pe_current_thread(void)
+{ return *(struct pe_thread **)(pe_current_teb()+0x1700); }
+static void pe_wait_changed(void)
+{
+    __atomic_add_fetch(&pe_wait_sequence, 1, __ATOMIC_RELEASE);
+    raw_syscall6(SYS_futex, (long)&pe_wait_sequence, 129, INT32_MAX, 0, 0, 0);
+}
+static struct pe_wait_object *pe_wait_lookup(HANDLE h, unsigned kind)
+{
+    struct pe_wait_object *o = NULL;
+    if (h == (HANDLE)(intptr_t)-2) {
+        struct pe_thread *t = pe_current_thread(); if (t) o = t->object;
+    } else for (struct pe_wait_handle *v = pe_wait_handles; v; v = v->next)
+        if (v->value == h) { o = v->object; break; }
+    if (!o || (kind && o->kind != kind)) { SetLastError(6); return NULL; }
+    return o;
+}
+static HANDLE pe_wait_handle_new(struct pe_wait_object *o)
+{
+    if (pe_next_wait_handle >= 0x3800000) { SetLastError(8); return NULL; }
+    struct pe_wait_handle *h = pe_raw_map(sizeof(*h)); if (!h) { SetLastError(8); return NULL; }
+    h->value = (HANDLE)(uintptr_t)(0x60000000ULL+4*pe_next_wait_handle++);
+    h->object = o; h->next = pe_wait_handles; pe_wait_handles = h; o->refs++; return h->value;
+}
+static bool pe_wait_name_equal(const uint16_t *a, const uint16_t *b)
+{ while (*a && *a == *b) { a++; b++; } return *a == *b; }
+static struct pe_wait_object *pe_wait_new(unsigned kind, const uint16_t *name, bool *exists)
+{
+    *exists = false;
+    if (name && !pe_copy_name((uint16_t[256]){0}, 256, name)) return NULL;
+    if (name) for (struct pe_wait_object *o = pe_wait_objects; o; o = o->next) {
+        if (o->named && pe_wait_name_equal(o->name, name)) {
+            if (o->kind != kind) { SetLastError(6); return NULL; }
+            *exists = true; SetLastError(183); return o;
+        }
+    }
+    struct pe_wait_object *o = pe_raw_map(sizeof(*o)); if (!o) { SetLastError(8); return NULL; }
+    o->kind = kind; o->named = name != NULL;
+    if (name) pe_copy_name(o->name, 256, name);
+    o->next = pe_wait_objects; pe_wait_objects = o; SetLastError(0); return o;
+}
+/* Call only under the state lock. Kernel-cleared TID is the final lifetime fence;
+ * done alone cannot authorize freeing the stack on which ExitThread is running. */
+static void pe_wait_reap(void)
+{
+    struct pe_wait_object **link = &pe_wait_objects;
+    while (*link) {
+        struct pe_wait_object *o = *link;
+        if (o->kind == PE_WAIT_THREAD && o->u.thread && o->u.thread->running_ref &&
+            o->u.thread->done && !__atomic_load_n(&o->u.thread->kernel_tid, __ATOMIC_ACQUIRE)) {
+            o->u.thread->running_ref = false; o->refs--;
+        }
+        if (o->refs) { link = &o->next; continue; }
+        *link = o->next;
+        if (o->kind == PE_WAIT_THREAD && o->u.thread) {
+            struct pe_thread *t = o->u.thread;
+            if (!t->main_thread) {
+                void *fls = *(void **)(t->teb+0x17c8);
+                if (fls) raw_syscall3(SYS_munmap, (long)fls, sizeof(struct pe_fls_data), 0);
+                if (t->tls_allocation) raw_syscall3(SYS_munmap, (long)t->tls_allocation, t->tls_size, 0);
+                if (t->tls_array) raw_syscall3(SYS_munmap, (long)t->tls_array, 64*8, 0);
+                if (t->altstack) raw_syscall3(SYS_munmap, (long)t->altstack, 65536, 0);
+                if (t->stack) raw_syscall3(SYS_munmap, (long)t->stack, t->stack_size, 0);
+                raw_syscall3(SYS_munmap, t->teb, 0x2000, 0);
+            }
+            raw_syscall3(SYS_munmap, (long)t, sizeof(*t), 0);
+        }
+        raw_syscall3(SYS_munmap, (long)o, sizeof(*o), 0);
+    }
+}
+__attribute__((ms_abi)) BOOL CloseHandle(HANDLE h)
+{
+    PE_STATE_GUARD;
+    struct pe_wait_handle **link = &pe_wait_handles;
+    while (*link && (*link)->value != h) link = &(*link)->next;
+    if (!*link) {
+        int fd = pe_handle_to_fd(h);
+        if (fd < 0) { SetLastError(6); return 0; }
+        if (raw_syscall3(SYS_close, fd, 0, 0)) { SetLastError(6); return 0; }
+        return 1;
+    }
+    struct pe_wait_handle *v = *link; struct pe_wait_object *o = v->object;
+    *link = v->next; o->refs--;
+    raw_syscall3(SYS_munmap, (long)v, sizeof(*v), 0);
+    if (o->kind == PE_WAIT_THREAD && o->u.thread && o->u.thread->done && !o->u.thread->main_thread) {
+        /* Pin during the tiny done -> kernel exit interval, without holding lock. */
+        o->refs++; struct pe_thread *t = o->u.thread;
+        pe_state_leave(&pe_guard);
+        int32_t tid;
+        while ((tid = __atomic_load_n(&t->kernel_tid, __ATOMIC_ACQUIRE)))
+            raw_syscall6(SYS_futex, (long)&t->kernel_tid, 0, tid, 0, 0, 0);
+        pe_guard = pe_state_enter(); o->refs--;
+    }
+    pe_wait_reap(); return 1;
+}
+static uint64_t pe_monotonic_ns(void)
+{
+    struct pe_timespec ts; raw_syscall3(SYS_clock_gettime, 1, (long)&ts, 0);
+    return (uint64_t)ts.tv_sec*1000000000ULL+ts.tv_nsec;
+}
+static bool pe_wait_ready(struct pe_wait_object *o, uint32_t tid)
+{
+    switch (o->kind) {
+    case PE_WAIT_THREAD: return o->u.thread->done;
+    case PE_WAIT_EVENT: return o->u.event.signaled;
+    case PE_WAIT_MUTEX: return !o->u.mutex.owner || o->u.mutex.owner == tid;
+    case PE_WAIT_SEMAPHORE: return o->u.semaphore.count > 0;
+    default: return false;
+    }
+}
+static bool pe_wait_consume(struct pe_wait_object *o, uint32_t tid)
+{
+    bool abandoned = false;
+    if (o->kind == PE_WAIT_EVENT && !o->u.event.manual) o->u.event.signaled = false;
+    if (o->kind == PE_WAIT_SEMAPHORE) o->u.semaphore.count--;
+    if (o->kind == PE_WAIT_MUTEX) {
+        abandoned = o->u.mutex.abandoned; o->u.mutex.abandoned = false;
+        o->u.mutex.owner = tid; o->u.mutex.recursion++;
+    }
+    return abandoned;
+}
+__attribute__((ms_abi)) DWORD WaitForMultipleObjectsEx(DWORD count, const HANDLE *handles, BOOL all, DWORD timeout, BOOL alertable)
+{
+    (void)alertable; /* APC delivery is not implemented; QueueUserAPC stays unknown. */
+    if (!count || count > 64 || !handles) { SetLastError(87); return UINT32_MAX; }
+    struct pe_wait_object *objects[64]; unsigned pinned = 0; DWORD result = UINT32_MAX;
+    uint32_t tid = GetCurrentThreadId(); uint64_t deadline = timeout == UINT32_MAX ? UINT64_MAX : pe_monotonic_ns()+timeout*1000000ULL;
+    PE_STATE_GUARD;
+    for (unsigned i = 0; i < count; i++) {
+        objects[i] = pe_wait_lookup(handles[i], 0); if (!objects[i]) goto out;
+        for (unsigned j = 0; j < i; j++) if (objects[j] == objects[i]) { SetLastError(87); goto out; }
+        objects[i]->refs++; pinned++;
+    }
+    for (;;) {
+        bool ready = all; unsigned first = count;
+        for (unsigned i = 0; i < count; i++) {
+            bool signaled = pe_wait_ready(objects[i], tid);
+            if (all) ready &= signaled;
+            else if (signaled && first == count) { first = i; ready = true; }
+        }
+        if (ready) {
+            result = all ? 0 : first;
+            for (unsigned i = 0; i < count; i++) if (all || i == first)
+                if (pe_wait_consume(objects[i], tid) && result < 0x80) result = 0x80+i;
+            break;
+        }
+        uint64_t now = pe_monotonic_ns();
+        if (now >= deadline) { result = 0x102; break; }
+        uint32_t seq = __atomic_load_n(&pe_wait_sequence, __ATOMIC_ACQUIRE);
+        struct pe_timespec ts = {(deadline-now)/1000000000ULL, (deadline-now)%1000000000ULL};
+        pe_state_leave(&pe_guard);
+        long r = raw_syscall6(SYS_futex, (long)&pe_wait_sequence, 128, seq, deadline == UINT64_MAX ? 0 : (long)&ts, 0, 0);
+        pe_guard = pe_state_enter();
+        if (r < 0 && r != -11 && r != -4 && r != -110) { SetLastError(87); break; }
+    }
+out:
+    for (unsigned i = 0; i < pinned; i++) objects[i]->refs--;
+    pe_wait_reap(); return result;
+}
+__attribute__((ms_abi)) DWORD WaitForMultipleObjects(DWORD n, const HANDLE *h, BOOL all, DWORD timeout)
+{ return WaitForMultipleObjectsEx(n, h, all, timeout, 0); }
+__attribute__((ms_abi)) DWORD WaitForSingleObjectEx(HANDLE h, DWORD timeout, BOOL alertable)
+{ return WaitForMultipleObjectsEx(1, &h, 0, timeout, alertable); }
+__attribute__((ms_abi)) DWORD WaitForSingleObject(HANDLE h, DWORD timeout)
+{ return WaitForSingleObjectEx(h, timeout, 0); }
+__attribute__((ms_abi)) HANDLE CreateEventW(void *security, BOOL manual, BOOL initial, const uint16_t *name)
+{
+    (void)security; PE_STATE_GUARD; pe_wait_reap(); bool existing;
+    struct pe_wait_object *o = pe_wait_new(PE_WAIT_EVENT, name, &existing); if (!o) return NULL;
+    if (!existing) { o->u.event.manual = manual != 0; o->u.event.signaled = initial != 0; }
+    HANDLE h = pe_wait_handle_new(o); if (!h) pe_wait_reap(); return h;
+}
+__attribute__((ms_abi)) BOOL SetEvent(HANDLE h)
+{
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_EVENT); if (!o) return 0;
+    o->u.event.signaled = true; pe_wait_changed(); return 1;
+}
+__attribute__((ms_abi)) BOOL ResetEvent(HANDLE h)
+{
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_EVENT); if (!o) return 0;
+    o->u.event.signaled = false; return 1;
+}
+__attribute__((ms_abi)) HANDLE CreateMutexW(void *security, BOOL initial_owner, const uint16_t *name)
+{
+    (void)security; PE_STATE_GUARD; pe_wait_reap(); bool existing;
+    struct pe_wait_object *o = pe_wait_new(PE_WAIT_MUTEX, name, &existing); if (!o) return NULL;
+    if (!existing && initial_owner) { o->u.mutex.owner = GetCurrentThreadId(); o->u.mutex.recursion = 1; }
+    HANDLE h = pe_wait_handle_new(o); if (!h) pe_wait_reap(); return h;
+}
+__attribute__((ms_abi)) BOOL ReleaseMutex(HANDLE h)
+{
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_MUTEX); if (!o) return 0;
+    if (o->u.mutex.owner != GetCurrentThreadId()) { SetLastError(288); return 0; }
+    if (!--o->u.mutex.recursion) { o->u.mutex.owner = 0; pe_wait_changed(); }
+    return 1;
+}
+__attribute__((ms_abi)) HANDLE CreateSemaphoreW(void *security, int32_t initial, int32_t max, const uint16_t *name)
+{
+    (void)security;
+    if (initial < 0 || max < 1 || initial > max) { SetLastError(87); return NULL; }
+    PE_STATE_GUARD; pe_wait_reap(); bool existing;
+    struct pe_wait_object *o = pe_wait_new(PE_WAIT_SEMAPHORE, name, &existing); if (!o) return NULL;
+    if (!existing) { o->u.semaphore.count = initial; o->u.semaphore.max = max; }
+    HANDLE h = pe_wait_handle_new(o); if (!h) pe_wait_reap(); return h;
+}
+__attribute__((ms_abi)) BOOL ReleaseSemaphore(HANDLE h, int32_t count, int32_t *previous)
+{
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_SEMAPHORE); if (!o) return 0;
+    if (count < 1) { SetLastError(87); return 0; }
+    if (count > o->u.semaphore.max-o->u.semaphore.count) { SetLastError(298); return 0; }
+    if (previous) *previous = o->u.semaphore.count;
+    o->u.semaphore.count += count; pe_wait_changed(); return 1;
+}
+static const uint16_t *pe_wait_ansi_name(const char *name, uint16_t *out)
+{ return !name ? NULL : MultiByteToWideChar(65001, 8, name, -1, out, 256) ? out : NULL; }
+__attribute__((ms_abi)) HANDLE CreateEventA(void *security, BOOL manual, BOOL initial, const char *name)
+{ uint16_t wide[256]; const uint16_t *p = pe_wait_ansi_name(name, wide); return name && !p ? NULL : CreateEventW(security, manual, initial, p); }
+__attribute__((ms_abi)) HANDLE CreateMutexA(void *security, BOOL initial, const char *name)
+{ uint16_t wide[256]; const uint16_t *p = pe_wait_ansi_name(name, wide); return name && !p ? NULL : CreateMutexW(security, initial, p); }
+__attribute__((ms_abi)) HANDLE CreateSemaphoreA(void *security, int32_t initial, int32_t max, const char *name)
+{ uint16_t wide[256]; const uint16_t *p = pe_wait_ansi_name(name, wide); return name && !p ? NULL : CreateSemaphoreW(security, initial, max, p); }
+__attribute__((ms_abi)) DWORD SleepEx(DWORD ms, BOOL alertable)
+{ (void)alertable; Sleep(ms); return 0; }
+__attribute__((ms_abi)) BOOL SwitchToThread(void)
+{ return raw_syscall3(SYS_sched_yield, 0, 0, 0) == 0; }
+__attribute__((ms_abi)) int32_t InterlockedIncrement(int32_t *p) { return __atomic_add_fetch(p, 1, __ATOMIC_SEQ_CST); }
+__attribute__((ms_abi)) int32_t InterlockedDecrement(int32_t *p) { return __atomic_sub_fetch(p, 1, __ATOMIC_SEQ_CST); }
+__attribute__((ms_abi)) int32_t InterlockedExchange(int32_t *p, int32_t v) { return __atomic_exchange_n(p, v, __ATOMIC_SEQ_CST); }
+__attribute__((ms_abi)) int32_t InterlockedCompareExchange(int32_t *p, int32_t v, int32_t expected)
+{ __atomic_compare_exchange_n(p, &expected, v, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
+
+/* x86-64 raw clone ABI: rdi=flags rsi=stack rdx=parent_tid r10=child_tid.
+ * The child uses only assembly until its new stack and GS base are installed. */
+long pe_clone(unsigned long flags, void *stack, int32_t *parent_tid, int32_t *child_tid);
+static __attribute__((used, noreturn)) void pe_thread_entry(struct pe_thread *t);
+__asm__(
+    ".text\n.type pe_clone,@function\npe_clone:\n"
+    "mov %rcx,%r10\n xor %r8d,%r8d\n mov $56,%eax\n syscall\n"
+    "test %rax,%rax\n jnz 1f\n pop %r12\n"
+    "mov (%r12),%rsi\n mov $0x1001,%edi\n mov $158,%eax\n syscall\n"
+    "test %rax,%rax\n js 2f\n mov %r12,%rdi\n and $-16,%rsp\n call pe_thread_entry\n ud2\n"
+    "1: ret\n 2: mov $127,%edi\n mov $231,%eax\n syscall\n ud2\n"
+    ".size pe_clone,.-pe_clone\n"
+);
+static __attribute__((used, noreturn)) void pe_thread_entry(struct pe_thread *t)
+{
+    uintptr_t teb = t->teb;
+    *(uint64_t *)(teb+0x40) = GetCurrentProcessId(); *(uint64_t *)(teb+0x48) = GetCurrentThreadId();
+    install_thread_crash_handler(t->altstack, 65536);
+    if (!pe_init_fls(teb)) pe_loader_error("thread FLS allocation failed");
+    for (;;) {
+        PE_STATE_GUARD;
+        if (!t->suspended) break;
+        uint32_t seq = __atomic_load_n(&pe_wait_sequence, __ATOMIC_ACQUIRE);
+        pe_state_leave(&pe_guard);
+        raw_syscall6(SYS_futex, (long)&pe_wait_sequence, 128, seq, 0, 0, 0);
+    }
+    if (!pe_thread_tls_init(t)) pe_loader_error("thread TLS allocation failed");
+    pe_tls_notify(2);
+    DWORD code = t->start(t->parameter);
+    ExitThread(code);
+}
+__attribute__((ms_abi)) HANDLE CreateThread(void *security, uint64_t stack_size,
+    DWORD (__attribute__((ms_abi)) *start)(void *), void *parameter, DWORD flags, DWORD *id)
+{
+    (void)security;
+    if (!start || (flags & ~(4u|0x10000u))) { SetLastError(87); return NULL; }
+    if (!stack_size) {
+        uint32_t nt; uint64_t reserve;
+        if (diagnostic_image_read(pe_main_base+0x3c, &nt, 4) &&
+            diagnostic_image_read(pe_main_base+nt+24+0x48, &reserve, 8)) stack_size = reserve;
+    }
+    if (stack_size < 1024*1024) stack_size = 1024*1024;
+    if (stack_size > INT64_MAX-8192) { SetLastError(8); return NULL; }
+    stack_size = (stack_size+4095) & ~4095ULL;
+    struct pe_thread *t = pe_raw_map(sizeof(*t)); if (!t) { SetLastError(8); return NULL; }
+    t->stack_size = stack_size+4096; t->stack = pe_raw_map(t->stack_size);
+    t->teb = (uintptr_t)pe_raw_map(0x2000); t->altstack = pe_raw_map(65536);
+    if (!t->stack || !t->teb || !t->altstack || raw_syscall3(SYS_mprotect, (long)t->stack, 4096, 0)) goto fail;
+    uintptr_t top = (uintptr_t)t->stack+t->stack_size, teb = t->teb;
+    *(uintptr_t *)(teb+8) = top; *(uintptr_t *)(teb+0x10) = (uintptr_t)t->stack+4096;
+    *(uintptr_t *)(teb+0x30) = teb;
+    *(uintptr_t *)(teb+0x60) = *(uintptr_t *)(pe_current_teb()+0x60);
+    *(struct pe_thread **)(teb+0x1700) = t;
+    t->start = start; t->parameter = parameter; t->suspended = !!(flags & 4); t->kernel_tid = -1;
+    *(struct pe_thread **)(top-16) = t;
+    {
+        PE_STATE_GUARD; pe_wait_reap(); bool exists;
+        struct pe_wait_object *o = pe_wait_new(PE_WAIT_THREAD, NULL, &exists);
+        if (!o) goto fail;
+        t->object = o; o->u.thread = t;
+        HANDLE h = pe_wait_handle_new(o);
+        if (!h) { o->u.thread = NULL; pe_wait_reap(); goto fail; }
+        t->running_ref = true; o->refs++;
+        long tid = pe_clone(0x350f00, (void *)(top-16), &t->kernel_tid, &t->kernel_tid);
+        if (tid < 0) {
+            t->running_ref = false; o->refs--; o->u.thread = NULL; CloseHandle(h); goto fail;
+        }
+        if (id) *id = tid;
+        return h;
+    }
+fail:
+    if (t->stack) raw_syscall3(SYS_munmap, (long)t->stack, t->stack_size, 0);
+    if (t->teb) raw_syscall3(SYS_munmap, t->teb, 0x2000, 0);
+    if (t->altstack) raw_syscall3(SYS_munmap, (long)t->altstack, 65536, 0);
+    raw_syscall3(SYS_munmap, (long)t, sizeof(*t), 0); SetLastError(8); return NULL;
+}
+__attribute__((ms_abi)) DWORD ResumeThread(HANDLE h)
+{
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_THREAD); if (!o) return UINT32_MAX;
+    unsigned previous = o->u.thread->suspended;
+    if (previous) { o->u.thread->suspended--; pe_wait_changed(); } return previous;
+}
+__attribute__((ms_abi)) BOOL GetExitCodeThread(HANDLE h, DWORD *code)
+{
+    if (!code) { SetLastError(87); return 0; }
+    PE_STATE_GUARD; struct pe_wait_object *o = pe_wait_lookup(h, PE_WAIT_THREAD); if (!o) return 0;
+    *code = o->u.thread->done ? o->u.thread->exit_code : 259; return 1;
+}
+__attribute__((ms_abi, noreturn)) void ExitThread(DWORD code)
+{
+    struct pe_thread *t = pe_current_thread();
+    pe_tls_notify(3); pe_fls_destruct();
+    {
+        PE_STATE_GUARD; uint32_t tid = GetCurrentThreadId();
+        for (struct pe_wait_object *o = pe_wait_objects; o; o = o->next)
+            if (o->kind == PE_WAIT_MUTEX && o->u.mutex.owner == tid) {
+                o->u.mutex.owner = 0; o->u.mutex.recursion = 0; o->u.mutex.abandoned = true;
+            }
+        t->exit_code = code; t->done = true; pe_wait_changed();
+    }
+    raw_syscall3(SYS_exit, 0, 0, 0);
+    for (;;) __asm__ volatile ("ud2");
+}
+static void pe_main_thread_init(void)
+{
+    PE_STATE_GUARD; bool exists;
+    struct pe_wait_object *o = pe_wait_new(PE_WAIT_THREAD, NULL, &exists);
+    struct pe_thread *t = pe_raw_map(sizeof(*t)); if (!o || !t) pe_loader_error("main thread object allocation failed");
+    o->u.thread = t; o->refs = 1; t->object = o; t->teb = pe_current_teb();
+    t->kernel_tid = GetCurrentThreadId(); t->main_thread = true;
+    *(struct pe_thread **)(t->teb+0x1700) = t;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "CloseHandle")) return CloseHandle;
+    if (!by_ordinal && ascii_equal_ci(function, "WaitForMultipleObjectsEx")) return WaitForMultipleObjectsEx;
+    if (!by_ordinal && ascii_equal_ci(function, "WaitForMultipleObjects")) return WaitForMultipleObjects;
+    if (!by_ordinal && ascii_equal_ci(function, "WaitForSingleObjectEx")) return WaitForSingleObjectEx;
+    if (!by_ordinal && ascii_equal_ci(function, "WaitForSingleObject")) return WaitForSingleObject;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateEventW")) return CreateEventW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateEventA")) return CreateEventA;
+    if (!by_ordinal && ascii_equal_ci(function, "SetEvent")) return SetEvent;
+    if (!by_ordinal && ascii_equal_ci(function, "ResetEvent")) return ResetEvent;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateMutexW")) return CreateMutexW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateMutexA")) return CreateMutexA;
+    if (!by_ordinal && ascii_equal_ci(function, "ReleaseMutex")) return ReleaseMutex;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateSemaphoreW")) return CreateSemaphoreW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateSemaphoreA")) return CreateSemaphoreA;
+    if (!by_ordinal && ascii_equal_ci(function, "ReleaseSemaphore")) return ReleaseSemaphore;
+    if (!by_ordinal && ascii_equal_ci(function, "SleepEx")) return SleepEx;
+    if (!by_ordinal && ascii_equal_ci(function, "SwitchToThread")) return SwitchToThread;
+    if (!by_ordinal && ascii_equal_ci(function, "InterlockedIncrement")) return InterlockedIncrement;
+    if (!by_ordinal && ascii_equal_ci(function, "InterlockedDecrement")) return InterlockedDecrement;
+    if (!by_ordinal && ascii_equal_ci(function, "InterlockedExchange")) return InterlockedExchange;
+    if (!by_ordinal && ascii_equal_ci(function, "InterlockedCompareExchange")) return InterlockedCompareExchange;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateThread")) return CreateThread;
+    if (!by_ordinal && ascii_equal_ci(function, "ResumeThread")) return ResumeThread;
+    if (!by_ordinal && ascii_equal_ci(function, "GetExitCodeThread")) return GetExitCodeThread;
+    if (!by_ordinal && ascii_equal_ci(function, "ExitThread")) return ExitThread;
     if (!by_ordinal && ascii_equal_ci(function, "PathRemoveFileSpecW")) return PathRemoveFileSpecW;
     if (!by_ordinal && ascii_equal_ci(function, "PathIsRelativeW")) return PathIsRelativeW;
     if (!by_ordinal && ascii_equal_ci(function, "PathIsUNCW")) return PathIsUNCW;
@@ -2285,18 +2691,57 @@ static __attribute__((noreturn)) void pe_loader_error(const char *message)
     raw_puts("[BRIDGE] loader error: "); raw_puts(message); raw_puts("\n");
     ExitProcess(127);
 }
-/* Compiler TLS is separate from the Tls/Fls API slot arrays above.
- * TODO: per-thread blocks for CreateThread. */
+static struct pe_tls_directory64 pe_image_tls;
+static bool pe_image_has_tls;
+static bool pe_thread_tls_init(struct pe_thread *t)
+{
+    t->tls_array = pe_raw_map(64*sizeof(void *)); if (!t->tls_array) return false;
+    if (pe_image_has_tls) {
+        uint64_t raw_size = pe_image_tls.end-pe_image_tls.start;
+        uint64_t size = (raw_size+pe_image_tls.zero_fill+15) & ~15ULL;
+        if (!size) size = 16;
+        unsigned code = (pe_image_tls.characteristics >> 20) & 15;
+        uint64_t align = code ? 1ULL << (code-1) : 16;
+        if (align < 16) align = 16;
+        t->tls_size = size+align-1; t->tls_allocation = pe_raw_map(t->tls_size);
+        if (!t->tls_allocation) return false;
+        uint8_t *block = (void *)(((uintptr_t)t->tls_allocation+align-1) & ~(align-1));
+        if (raw_size) memcpy(block, (void *)(uintptr_t)pe_image_tls.start, raw_size);
+        memset(block+raw_size, 0, size-raw_size);
+        ((void **)t->tls_array)[0] = block;
+    }
+    *(void **)(t->teb+0x58) = t->tls_array; return true;
+}
+static void pe_tls_notify(DWORD reason)
+{
+    if (!pe_image_has_tls || !pe_image_tls.callbacks) return;
+    uintptr_t pos = pe_image_tls.callbacks;
+    for (;;) {
+        uint64_t callback;
+        if (!diagnostic_image_read(pos, &callback, 8)) pe_loader_error("unterminated TLS callbacks");
+        if (!callback) break;
+        if (callback < pe_text_start || callback >= pe_text_end) pe_loader_error("TLS callback outside .text");
+        typedef void (__attribute__((ms_abi)) *tls_callback)(void *, uint32_t, void *);
+        ((tls_callback)(uintptr_t)callback)((void *)pe_main_base, reason, NULL);
+        pos += 8;
+    }
+}
 static void pe_setup_image_tls(uintptr_t base)
 {
     uint32_t nt, count, dd[2]; uint16_t optional_size;
     if (!diagnostic_image_read(base+0x3c, &nt, 4) ||
         !diagnostic_image_read(base+nt+20, &optional_size, 2) || optional_size < 0x70 ||
         !diagnostic_image_read(base+nt+24+0x6c, &count, 4)) pe_loader_error("invalid TLS headers");
-    if (count <= 9) return;
+    if (count <= 9) {
+        if (!pe_thread_tls_init(pe_current_thread())) pe_loader_error("main TLS allocation failed");
+        return;
+    }
     if (optional_size < 0x70+10*8 ||
         !diagnostic_image_read(base+nt+24+0x70+9*8, dd, sizeof(dd))) pe_loader_error("invalid TLS directory entry");
-    if (!dd[0] && !dd[1]) return;
+    if (!dd[0] && !dd[1]) {
+        if (!pe_thread_tls_init(pe_current_thread())) pe_loader_error("main TLS allocation failed");
+        return;
+    }
     struct pe_tls_directory64 tls;
     if (dd[1] < sizeof(tls) || !diagnostic_image_read(base+dd[0], &tls, sizeof(tls)) ||
         tls.end < tls.start) pe_loader_error("invalid TLS directory");
@@ -2311,32 +2756,12 @@ static void pe_setup_image_tls(uintptr_t base)
     uint64_t size = (raw_size+tls.zero_fill+15) & ~15ULL;
     if (!size) size = 16;
     if (size > INT64_MAX-align) pe_loader_error("TLS allocation too large");
-    uint8_t *allocation = (void *)pe_mmap_rw(size+align-1);
-    void **array = (void *)pe_mmap_rw(64*sizeof(void *));
-    if (!allocation || !array) pe_loader_error("TLS allocation failed");
-    uint8_t *block = (void *)(((uintptr_t)allocation+align-1) & ~(align-1));
-    if (raw_size && !diagnostic_image_read(tls.start, block, raw_size)) pe_loader_error("unreadable TLS template");
-    memset(block+raw_size, 0, size-raw_size);
-    uintptr_t teb;
-    __asm__ volatile ("mov %%gs:0x30, %0" : "=r"(teb));
-    array[0] = block;
-    *(void ***)(teb+0x58) = array;
+    pe_image_tls = tls; pe_image_has_tls = true;
+    if (!pe_thread_tls_init(pe_current_thread())) pe_loader_error("main TLS allocation failed");
     *(uint32_t *)(uintptr_t)tls.index = 0;
     raw_puts("[BRIDGE] TLS: template="); raw_hex(raw_size);
     raw_puts(" zero-fill="); raw_hex(tls.zero_fill); raw_puts(" alignment="); raw_hex(align); raw_puts("\n");
-    if (tls.callbacks) {
-        /* Bound the callback walk by the image, including its terminator. */
-        uintptr_t pos = tls.callbacks;
-        for (;;) {
-            uint64_t callback;
-            if (!diagnostic_image_read(pos, &callback, 8)) pe_loader_error("unterminated TLS callbacks");
-            if (!callback) break;
-            if (callback < pe_text_start || callback >= pe_text_end) pe_loader_error("TLS callback outside .text");
-            typedef void (__attribute__((ms_abi)) *tls_callback)(void *, uint32_t, void *);
-            ((tls_callback)(uintptr_t)callback)((void *)base, 1, NULL);
-            pos += 8;
-        }
-    }
+    pe_tls_notify(1);
 }
 
 __attribute__((used, visibility("hidden")))
@@ -2358,6 +2783,7 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
     *(uint64_t *)(teb+0x40) = GetCurrentProcessId();
     *(uint64_t *)(teb+0x48) = GetCurrentThreadId();
     if (!pe_init_fls(teb)) pe_loader_error("main FLS allocation failed");
+    pe_main_thread_init();
     pe_setup_image_tls(image_base);
 }
 
