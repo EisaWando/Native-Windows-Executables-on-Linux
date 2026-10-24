@@ -849,6 +849,105 @@ __attribute__((ms_abi)) uint64_t GetTickCount64(void)
 }
 __attribute__((ms_abi)) DWORD GetTickCount(void) { return GetTickCount64(); }
 
+__attribute__((ms_abi)) BOOL IsValidCodePage(DWORD cp)
+{ return cp == 0 || cp == 1 || cp == 65001; }
+
+/* Decode one scalar; consume only the malformed prefix on replacement. */
+static uint32_t pe_utf8_read(const unsigned char *s, int n, int *used, int *bad)
+{
+    uint32_t c = s[0], min; int k;
+    *used = 1; *bad = 0;
+    if (c < 128) return c;
+    if (c >= 0xc2 && c <= 0xdf) { k = 2; min = 0x80; c &= 31; }
+    else if (c >= 0xe0 && c <= 0xef) { k = 3; min = 0x800; c &= 15; }
+    else if (c >= 0xf0 && c <= 0xf4) { k = 4; min = 0x10000; c &= 7; }
+    else { *bad = 1; return 0xfffd; }
+    for (int i = 1; i < k; i++) {
+        if (i >= n || (s[i] & 0xc0) != 0x80 ||
+            (i == 1 && ((s[0] == 0xe0 && s[i] < 0xa0) ||
+                        (s[0] == 0xed && s[i] >= 0xa0) ||
+                        (s[0] == 0xf0 && s[i] < 0x90) ||
+                        (s[0] == 0xf4 && s[i] >= 0x90)))) {
+            *bad = 1; return 0xfffd;
+        }
+        c = (c << 6) | (s[i] & 63); *used = i + 1;
+    }
+    if (c < min || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) {
+        *bad = 1; return 0xfffd;
+    }
+    return c;
+}
+__attribute__((ms_abi)) int MultiByteToWideChar(DWORD cp, DWORD flags,
+    const char *src, int len, uint16_t *out, int cap)
+{
+    if (!IsValidCodePage(cp) || !src || len == 0 || len < -1 || cap < 0 ||
+        (cap && (!out || (void *)out == (void *)src))) { SetLastError(87); return 0; }
+    if (flags & ~8u) { SetLastError(1004); return 0; }
+    if (len == -1) len = cstring_length(src) + 1;
+    int count = 0;
+    for (int pass = 0; pass < (cap ? 2 : 1); pass++) {
+        count = 0;
+        for (int i = 0; i < len;) {
+            int used, bad; uint32_t c = pe_utf8_read((const unsigned char *)src+i, len-i, &used, &bad);
+            if (bad && (flags & 8)) { SetLastError(1113); return 0; }
+            i += used;
+            if (pass) {
+                if (c > 0xffff) { out[count++] = 0xd800 + ((c-0x10000)>>10); out[count++] = 0xdc00 + ((c-0x10000)&1023); }
+                else out[count++] = c;
+            } else count += c > 0xffff ? 2 : 1;
+        }
+        if (!pass && cap && count > cap) { SetLastError(122); return 0; }
+    }
+    return count;
+}
+__attribute__((ms_abi)) int WideCharToMultiByte(DWORD cp, DWORD flags,
+    const uint16_t *src, int len, char *out, int cap, const char *def, BOOL *used_def)
+{
+    if (!IsValidCodePage(cp) || !src || len == 0 || len < -1 || cap < 0 ||
+        (cap && (!out || (void *)out == (void *)src)) || def || used_def) { SetLastError(87); return 0; }
+    if (flags & ~0x80u) { SetLastError(1004); return 0; }
+    if (len == -1) len = lstrlenW(src) + 1;
+    int count = 0;
+    for (int pass = 0; pass < (cap ? 2 : 1); pass++) {
+        count = 0;
+        for (int i = 0; i < len; i++) {
+            uint32_t c = src[i]; int bad = 0;
+            if (c >= 0xd800 && c <= 0xdbff && i+1 < len && src[i+1] >= 0xdc00 && src[i+1] <= 0xdfff)
+                { c = 0x10000 + ((c-0xd800)<<10) + src[++i]-0xdc00; }
+            else if (c >= 0xd800 && c <= 0xdfff) { c = 0xfffd; bad = 1; }
+            if (bad && (flags & 0x80)) { SetLastError(1113); return 0; }
+            int n = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+            if (pass) {
+                if (n == 1) out[count] = c;
+                else {
+                    out[count] = (n == 2 ? 0xc0 : n == 3 ? 0xe0 : 0xf0) | (c >> (6*(n-1)));
+                    for (int j = 1; j < n; j++) out[count+j] = 0x80 | ((c >> (6*(n-1-j))) & 63);
+                }
+            }
+            count += n;
+        }
+        if (!pass && cap && count > cap) { SetLastError(122); return 0; }
+    }
+    return count;
+}
+__attribute__((ms_abi)) DWORD SetHandleCount(DWORD count) { return count; }
+__attribute__((ms_abi)) BOOL GetCPInfoExW(DWORD cp, DWORD flags, void *out)
+{
+    (void)flags;
+    if (!out) { SetLastError(87); return 0; }
+    memset(out, 0, 544);
+    if (!GetCPInfo(cp, out)) return 0;
+    *(uint16_t *)((char *)out + 18) = 0xfffd;
+    *(DWORD *)((char *)out + 20) = 65001;
+    const char *name = "Unicode (UTF-8)";
+    uint16_t *dst = (uint16_t *)((char *)out + 24);
+    while (*name) *dst++ = *name++;
+    return 1;
+}
+__attribute__((ms_abi)) BOOL AreFileApisANSI(void) { return 1; }
+__attribute__((ms_abi)) DWORD GetConsoleCP(void) { return 65001; }
+__attribute__((ms_abi)) DWORD GetConsoleOutputCP(void) { return 65001; }
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
@@ -861,6 +960,14 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "Sleep")) return Sleep;
     if (!by_ordinal && ascii_equal_ci(function, "GetTickCount64")) return GetTickCount64;
     if (!by_ordinal && ascii_equal_ci(function, "GetTickCount")) return GetTickCount;
+    if (!by_ordinal && ascii_equal_ci(function, "IsValidCodePage")) return IsValidCodePage;
+    if (!by_ordinal && ascii_equal_ci(function, "MultiByteToWideChar")) return MultiByteToWideChar;
+    if (!by_ordinal && ascii_equal_ci(function, "WideCharToMultiByte")) return WideCharToMultiByte;
+    if (!by_ordinal && ascii_equal_ci(function, "SetHandleCount")) return SetHandleCount;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCPInfoExW")) return GetCPInfoExW;
+    if (!by_ordinal && ascii_equal_ci(function, "AreFileApisANSI")) return AreFileApisANSI;
+    if (!by_ordinal && ascii_equal_ci(function, "GetConsoleCP")) return GetConsoleCP;
+    if (!by_ordinal && ascii_equal_ci(function, "GetConsoleOutputCP")) return GetConsoleOutputCP;
 	(void)dll;
 	if (!by_ordinal && ascii_equal_ci(function, "GetStdHandle"))
 		return GetStdHandle;

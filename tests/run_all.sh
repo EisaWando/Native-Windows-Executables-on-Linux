@@ -8,7 +8,7 @@ trap 'rm -rf "$work"' EXIT
 flags=(-O1 -fno-builtin -fno-tree-loop-distribute-patterns -nostdlib
        -ffreestanding -fno-stack-protector -Wl,--entry=mainCRTStartup
        -Wl,--subsystem,console)
-for name in hello heap; do
+for name in hello heap utf; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 || exit 1
 done
 x86_64-w64-mingw32-gcc "${flags[@]}" -o "$work/hello.exe" tests/hello42.c -lkernel32 || exit 1
@@ -31,6 +31,7 @@ check_pe() {
 check_pe tests/hello.exe 0 'Hello from PE!' timeout 15s tests/hello.exe
 check_pe ./hello.exe 42 'Hello from a native PE on Linux!' bash -c 'cd "$1" && timeout 15s ./hello.exe' bash "$work"
 check_pe tests/heap.exe 0 'heap ok' timeout 15s tests/heap.exe
+check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 timeout 30s ./npp.8.9.8.portable.x64/notepad++.exe > /tmp/out.txt 2> /tmp/err.txt
 status=$?
 printf 'Notepad++ exit: %s\n' "$status"
