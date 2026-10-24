@@ -5,6 +5,7 @@ set -o pipefail
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 work=$(mktemp -d /tmp/binfmt-pe-tests.XXXXXX) || exit 1
 trap 'rm -rf "$work"' EXIT
+bash gui/build.sh || exit 1
 flags=(-O1 -fno-builtin -fno-tree-loop-distribute-patterns -nostdlib
        -ffreestanding -fno-stack-protector -Wl,--entry=mainCRTStartup
        -Wl,--subsystem,console)
@@ -23,7 +24,7 @@ while read -r kind offset address physical file_size memory_size rest; do
 done <<< "$headers"
 if ((bridge_segments == 0)); then echo 'FAIL bridge has no PT_LOAD segments'; exit 1; fi
 printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
-for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry; do
+for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lshlwapi -lshell32 -ladvapi32 || exit 1
 done
 x86_64-w64-mingw32-gcc "${flags[@]}" -o "$work/hello.exe" tests/hello42.c -lkernel32 || exit 1
@@ -55,8 +56,18 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
+check_pe tests/queues.exe 0 'queues ok' timeout 15s tests/queues.exe
 check_pe tests/paths.exe 0 'paths ok' timeout 15s tests/paths.exe
 check_pe tests/files.exe 0 'files ok' timeout 15s tests/files.exe
+# Display tests are explicit: the ordinary regression suite stays usable headless.
+if [[ ${PE_GUI_TEST:-0} == 1 ]]; then
+    check_pe tests/windows.exe 0 'windows ok' timeout 30s tests/windows.exe
+    check_pe missing-GUI-helper 0 'gui failure ok' env BINFMT_PE_GUI_HELPER=/nonexistent/pe_gui_host timeout 15s tests/gui_failure.exe
+    check_pe unavailable-display 0 'gui failure ok' env DISPLAY= timeout 15s tests/gui_failure.exe
+    python3 tests/gui_display.py || failures=$((failures+1))
+else
+    echo 'SKIP visible windows (run PE_GUI_TEST=1 bash tests/run_all.sh on a display)'
+fi
 check_pe tests/registry.exe 0 'registry ok' timeout 15s tests/registry.exe
 check_pe tests/calendar.exe 0 'calendar ok' timeout 15s tests/calendar.exe
 check_pe tests/thread_smoke.exe 0 'thread smoke ok' timeout 15s tests/thread_smoke.exe

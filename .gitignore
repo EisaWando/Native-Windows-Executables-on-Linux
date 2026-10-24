@@ -201,3 +201,5 @@ CS16_Setup.exe
 npp.8.9.8.portable.x64/langs.xml
 npp.8.9.8.portable.x64/stylers.xml
 npp.8.9.8.portable.x64/shortcuts.xml
+/pe_gui_host
+/gui/host_path.h

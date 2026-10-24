@@ -1307,7 +1307,7 @@ __attribute__((ms_abi)) void OutputDebugStringW(const uint16_t *s)
     if (n > 0 && n <= (int)sizeof(buf) && WideCharToMultiByte(65001, 0, s, -1, buf, sizeof(buf), 0, 0)) OutputDebugStringA(buf);
 }
 
-/* Headless GUI objects: no display connection, rasterization or window dispatch.
+/* Shared GDI/USER metadata; the original window backend is in gui/bridge.inc.
  * Handles encode slot + generation; exhausted generations are never reused. */
 #define PE_GUI_BASE 0x50000000ULL
 #define PE_GUI_MAX_SLOTS 65536
@@ -1332,7 +1332,9 @@ struct pe_logfont {
 struct pe_logbrush { uint32_t style, color; uint64_t hatch; };
 struct pe_logpen { uint32_t style; int32_t x, y; uint32_t color; };
 struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bpp; void *bits; };
+struct pe_window;
 struct pe_gui_object {
+    struct pe_window *window;
     uint32_t type, generation, selected, shared, slot;
     HANDLE owner;
     struct { uintptr_t module, resource; uint32_t flags; int32_t width, height; uint16_t name[64]; } image;
@@ -1341,7 +1343,7 @@ struct pe_gui_object {
         struct pe_logpen pen;
         struct pe_logfont font;
         struct pe_bitmap bitmap;
-        struct { HANDLE pen, brush, font, bitmap, palette; HANDLE owner; } dc;
+        struct { HANDLE pen, brush, font, bitmap, palette; HANDLE owner; DWORD text_color, background; int background_mode, x,y; } dc;
         int32_t rect[4];
     } u;
 };
@@ -1467,6 +1469,7 @@ static HANDLE pe_new_dc(unsigned type, HANDLE owner)
     if (!o->u.dc.pen || !o->u.dc.brush || !o->u.dc.font || !o->u.dc.palette || !b) { pe_gui_drop(o); return NULL; }
     b->shared = 1; b->owner = h; b->u.bitmap = (struct pe_bitmap){0, 1, 1, 2, 1, 1, NULL};
     o->u.dc.bitmap = pe_gui_handle(b); o->u.dc.owner = owner;
+    o->u.dc.background=0xffffff; o->u.dc.background_mode=2;
     HANDLE initial[] = {o->u.dc.pen, o->u.dc.brush, o->u.dc.font, o->u.dc.bitmap, o->u.dc.palette};
     for (unsigned i = 0; i < 5; i++) pe_gui_lookup(initial[i], 0)->selected++;
     return h;
@@ -1564,13 +1567,7 @@ __attribute__((ms_abi)) HANDLE GetDC(HANDLE window)
     if (window && !pe_gui_lookup(window, PE_GUI_WINDOW)) return NULL;
     return pe_new_dc(PE_GDI_DC, window);
 }
-__attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc)
-{ PE_STATE_GUARD;
-    struct pe_gui_object *o = pe_gui_lookup(dc, PE_GDI_DC);
-    if (!o) return 0;
-    if (o->u.dc.owner != window) { SetLastError(6); return 0; }
-    pe_drop_dc(o); return 1;
-}
+__attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc);
 __attribute__((ms_abi)) int GetSystemMetrics(int index)
 {
     switch (index) {
@@ -1662,7 +1659,7 @@ struct pe_wndclassex {
     const uint16_t *menu_name, *class_name; HANDLE small_icon;
 };
 struct pe_gui_class {
-    uint16_t atom; uint16_t name[256], menu[256];
+    uint16_t atom; unsigned windows; uint16_t name[256], menu[256];
     struct pe_wndclassex data; void *extra;
 };
 static struct pe_gui_class *pe_gui_classes;
@@ -1727,6 +1724,7 @@ __attribute__((ms_abi)) BOOL UnregisterClassW(const uint16_t *name, HANDLE insta
 { PE_STATE_GUARD;
     if (!name) { SetLastError(87); return 0; }
     struct pe_gui_class *v = pe_class_lookup(instance, name); if (!v) return 0;
+    if (v->windows) { SetLastError(1412); return 0; }
     pe_heap_free(v->extra); memset(v, 0, sizeof(*v)); return 1;
 }
 __attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name, unsigned type, int width, int height, unsigned flags)
@@ -2009,6 +2007,7 @@ static struct pe_wait_handle *pe_wait_handles;
 static uint32_t pe_wait_sequence, pe_next_wait_handle;
 static bool pe_thread_tls_init(struct pe_thread *t);
 static void pe_tls_notify(DWORD reason);
+static void pe_gui_thread_cleanup(void);
 __attribute__((ms_abi, noreturn)) void ExitThread(DWORD code);
 static struct pe_thread *pe_current_thread(void)
 { return *(struct pe_thread **)(pe_current_teb()+0x1700); }
@@ -2362,6 +2361,7 @@ __attribute__((ms_abi)) BOOL GetExitCodeThread(HANDLE h, DWORD *code)
 __attribute__((ms_abi, noreturn)) void ExitThread(DWORD code)
 {
     struct pe_thread *t = pe_current_thread();
+    pe_gui_thread_cleanup();
     pe_tls_notify(3); pe_fls_destruct();
     {
         PE_STATE_GUARD; uint32_t tid = GetCurrentThreadId();
@@ -3425,9 +3425,50 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
     SetLastError(saved);return r;
 }
 
+#include "gui/bridge.inc"
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "CreateWindowExW")) return CreateWindowExW;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyWindow")) return DestroyWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "DefWindowProcW")) return DefWindowProcW;
+    if (!by_ordinal && ascii_equal_ci(function, "CallWindowProcW")) return CallWindowProcW;
+    if (!by_ordinal && ascii_equal_ci(function, "SendMessageW")) return SendMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "PostMessageW")) return PostMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "PostThreadMessageW")) return PostThreadMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "PostQuitMessage")) return PostQuitMessage;
+    if (!by_ordinal && ascii_equal_ci(function, "ShowWindow")) return ShowWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWindow")) return IsWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWindowVisible")) return IsWindowVisible;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWindowUnicode")) return IsWindowUnicode;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowThreadProcessId")) return GetWindowThreadProcessId;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClientRect")) return GetClientRect;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowRect")) return GetWindowRect;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowTextW")) return SetWindowTextW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowTextW")) return GetWindowTextW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowTextLengthW")) return GetWindowTextLengthW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowLongPtrW")) return GetWindowLongPtrW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowLongPtrW")) return SetWindowLongPtrW;
+    if (!by_ordinal && ascii_equal_ci(function, "InvalidateRect")) return InvalidateRect;
+    if (!by_ordinal && ascii_equal_ci(function, "ValidateRect")) return ValidateRect;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMessageW")) return GetMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "PeekMessageW")) return PeekMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "TranslateMessage")) return TranslateMessage;
+    if (!by_ordinal && ascii_equal_ci(function, "DispatchMessageW")) return DispatchMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "UpdateWindow")) return UpdateWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "BeginPaint")) return BeginPaint;
+    if (!by_ordinal && ascii_equal_ci(function, "EndPaint")) return EndPaint;
+    if (!by_ordinal && ascii_equal_ci(function, "FillRect")) return FillRect;
+    if (!by_ordinal && ascii_equal_ci(function, "SetTextColor")) return SetTextColor;
+    if (!by_ordinal && ascii_equal_ci(function, "SetBkColor")) return SetBkColor;
+    if (!by_ordinal && ascii_equal_ci(function, "SetBkMode")) return SetBkMode;
+    if (!by_ordinal && ascii_equal_ci(function, "TextOutW")) return TextOutW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetPixel")) return GetPixel;
+    if (!by_ordinal && ascii_equal_ci(function, "SetPixel")) return SetPixel;
+    if (!by_ordinal && ascii_equal_ci(function, "MoveToEx")) return MoveToEx;
+    if (!by_ordinal && ascii_equal_ci(function, "LineTo")) return LineTo;
+    if (!by_ordinal && ascii_equal_ci(function, "Rectangle")) return Rectangle;
     if (!by_ordinal && ascii_equal_ci(function, "RegCloseKey")) return RegCloseKey;
     if (!by_ordinal && ascii_equal_ci(function, "RegFlushKey")) return RegFlushKey;
     if (!by_ordinal && ascii_equal_ci(function, "RegOpenKeyExW")) return RegOpenKeyExW;

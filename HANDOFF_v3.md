@@ -44,6 +44,105 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: first visible original USER32/GDI window (2026-10-24)
+
+The owner approved building the Windows graphics layer from scratch. Implemented
+an original Windows-facing layer in `gui/bridge.inc` (included by
+win32_bridge.c) and a native X11 software-rendering helper in `gui/host.c`.
+No Wine/ReactOS code, new kernel graphics ABI, kernel changes, sudo, or module
+reload. Windows apps use standard USER32/GDI imports. The freestanding bridge
+owns Windows ABI callbacks, generational HWND/HDC validation, window lifetime,
+class references and per-thread Windows message queues. A separate native ELF
+helper per GUI thread uses Xlib, Fontconfig and FreeType through the normal
+Linux loader. This avoids libc/ELF-loader/TLS integration inside the bridge.
+XWayland is the initial Wayland-desktop path. See `docs/GUI_DESIGN.md`.
+
+New window/message exports: CreateWindowExW, DestroyWindow, DefWindowProcW,
+CallWindowProcW, SendMessageW (same-thread), PostMessageW, PostThreadMessageW,
+PostQuitMessage, ShowWindow, IsWindow/IsWindowVisible/IsWindowUnicode,
+GetWindowThreadProcessId, GetClientRect/GetWindowRect, SetWindowTextW,
+GetWindowTextW/LengthW, Get/SetWindowLongPtrW (userdata/wndproc/extra storage),
+InvalidateRect/ValidateRect, GetMessageW, PeekMessageW, TranslateMessage,
+DispatchMessageW and UpdateWindow. Creation calls WM_NCCREATE/WM_CREATE with
+an ABI-checked CREATESTRUCTW. Rejection and destruction during creation are
+tested. Destruction calls WM_DESTROY/WM_NCDESTROY; unregistering a class with
+live windows fails. Window callbacks never run with the bridge state lock held.
+Headless per-thread message queues also work without opening the display.
+
+Drawing exports: BeginPaint/EndPaint, FillRect, Rectangle, MoveToEx/LineTo,
+SetPixel/GetPixel, TextOutW, SetTextColor/SetBkColor/SetBkMode. GetDC/ReleaseDC
+now support actual window DCs and present on release. The helper owns bounded
+per-window software RGB framebuffers, clips to the client area, rasterizes
+solid fills/one-pixel lines and FreeType grayscale glyphs, and presents with
+XPutImage. Fontconfig substitutes unavailable faces; the screenshot uses sans.
+Default WM_ERASEBKGND uses the registered class brush. Default WM_PAINT validates
+and presents through BeginPaint/EndPaint. PAINTSTRUCT/MSG layouts are asserted.
+
+Transport is a pointer-free, version-tagged, fixed-layout SOCK_SEQPACKET channel.
+The bridge uses fork + raw-syscall execve of the helper; the child only keeps
+its channel at fd 3 (plus stdio). No bridge lock is held over IPC/display waits.
+Replies have a five-second timeout, sends are nonblocking/MSG_NOSIGNAL, and
+failed helpers are killed/reaped. Parent death terminates the helper; ExitThread
+destroys that thread's windows and closes/reaps its helper. X events are polled
+with a 16 ms maximum wait so queued cross-thread posts are noticed. Native expose,
+resize, focus, basic mouse/button and key events become Windows messages;
+WM_DELETE_WINDOW becomes WM_CLOSE. TranslateMessage supports ASCII WM_CHAR.
+
+Build: `bash gui/build.sh` builds the helper with pkg-config x11/freetype2/
+fontconfig, then uses the exact section-2 GCC bridge flags. It generates ignored
+`gui/host_path.h` recording the helper's absolute location. A direct bridge
+compile without this generated header falls back to ./pe_gui_host; the
+BINFMT_PE_GUI_HELPER environment variable overrides either default. Host/font
+libraries and their development headers are new build dependencies, not bridge
+link dependencies. tests/run_all.sh rebuilds helper/bridge and all PE fixtures.
+Use `env PE_GUI_TEST=1 bash tests/run_all.sh` for visible display tests; default
+runs print an explicit SKIP for those and still test queues headlessly. An
+interactive demo is `./tests/window_demo.exe` after running the harness; Escape
+or the title-bar close button exits. No module reload is needed.
+
+Verification: first direct tests/windows.exe run passed on the owner's XWayland
+screen (:0, 1366x768, 24-bit default depth). Sandbox display connections are
+blocked; visible tests were explicitly approved outside it. A first full visible
+suite failed in the *test driver* with X BadDrawable because title-only discovery
+could select a window-manager frame. The driver now checks the client WM_CLASS
+BinfmtPE and handles disappearing unrelated X windows. The corrected complete
+`PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/gui-final-suite.log 2>&1` exited **0**.
+All existing functional fixtures, queues, windows, missing-helper and unavailable-
+display failure tests, 20/20 thread stress runs, guard-page crash diagnostics and
+synthetic exception diagnostics pass. tests/windows.c checks Unicode creation,
+callback rejection/reentrancy, class lifetime, userdata/extra bytes, message
+filtering, auto background erasure, color readback, actual font glyph pixels,
+line drawing, paint lifecycle, and two GUI threads with separate helpers.
+tests/gui_display.py independently reads the demo window with XGetImage and
+verifies background/rectangle/text pixels, resize repaint and injected Escape /
+WM_DELETE_WINDOW closure. Both display paths passed. Actual captured client
+image: /tmp/pe-window-demo.ppm (PNG preview /tmp/pe-window-demo.png, untracked).
+`git diff --check`, shell syntax checks and Python compilation passed.
+
+Measured bridge: text=159581, data=0, bss=68304; PT_LOAD extent=236240 / 1048576,
+**812336 bytes free**. Window/queue metadata and framebuffer storage are dynamic;
+framebuffers live in the helper, outside the fixed bridge mapping.
+
+Scope/limits: this is the first custom-Unicode-top-level-window milestone, not
+complete USER32/GDI compatibility. No child/owned/message-only windows, menus,
+standard controls/dialogs, extended window styles, ANSI window creation, cross-
+thread SendMessage, native Wayland, IME/complex text shaping, timers or complete
+keyboard/mouse semantics. Unsupported creation modes return error 50; cross-
+thread synchronous window operations return error 5. Drawing to memory DCs,
+bitmap blits, arbitrary clipping, non-solid/wide pens and complete font style/
+layout semantics remain unsupported. Invalidation coalesces to the whole client
+area; window sizes/rectangles currently describe X11 client geometry and do not
+model Windows nonclient frame extents. The screen metrics remain the previous
+fixed profile. Each window is limited to 4096x4096; text requests are bounded by
+the 1024-byte wire payload; fonts clamp to 256 pixels. Stable window metadata is
+retained until process exit to keep reentrant/queued references safe. This is a
+future reclamation task, not an unbounded static-BSS allocation.
+
+Notepad++: **191 resolved / 429 unimplemented** imports, still informational exit
+127 at bcrypt.dll!BCryptOpenAlgorithmProvider ret=0x140116257, SHA256, flags=8.
+The new GUI fixture is independent of this unrelated crypto startup blocker.
+Stop after this milestone. No push.
+
 ### Latest: Round A — process-local registry (2026-10-24)
 
 Bridge-only registry implementation: UTF-16 node/value names and string payloads in stable mmap allocations; raw binary/DWORD/QWORD bytes preserved. A variants use the bridge UTF-8 converters. Global runtime lock serializes tree and handle operations. Opened keys use PE_REGKEY objects in the existing 0x60000000–0x6dffffff handle registry; each handle stores access rights. All five requested sign-extended predefined HKEYs map to independent roots. RegCloseKey accepts predefined keys without closing them and rejects stale handles; wait APIs reject registry handles. Registry APIs return LSTATUS directly and preserve last error.
@@ -162,8 +261,8 @@ WideCharToMultiByte / MultiByteToWideChar (real UTF-8 <-> UTF-16, CP_ACP and CP_
 ### Batch D — threads and sync (core implemented; see latest state)
 Completed core: CreateThread via clone with per-thread TEB/GS/TLS, recursive futex critical sections, SRW locks, events, mutexes, semaphores, wait APIs, per-thread TLS/FLS/destructors, 32-bit Interlocked exports and ExitThread. Pending: APCs, forced cancellation, thread pools, full interprocess object namespaces and expansion/DLL TLS. Existing 20-run stress suite is mandatory after synchronization changes.
 
-### Stage 2 — GUI (the long road; decision needed from the owner)
-USER32 (216 imports) + GDI32 (66) + COMCTL32/UxTheme/SHELL32/etc. need a display path: windows, message loop, painting, fonts, input. Options: (a) minimal in-house layer on X11 (Xlib/xcb via dynamic loading or raw protocol) first, Wayland later; (b) selectively reuse LGPL Wine code (requires explicit owner approval and licensing review); (c) first prove the path with a tiny Win32 test app (RegisterClassW/CreateWindowExW/message loop/`TextOutW`) before Notepad++. Bring a short written design and a recommendation to the owner before building this.
+### Stage 2 — GUI (original implementation selected; first window completed)
+Historical design options (owner has now chosen the original layer and the first visible-window milestone above supersedes this decision gate): USER32 (216 imports) + GDI32 (66) + COMCTL32/UxTheme/SHELL32/etc. need a display path: windows, message loop, painting, fonts, input. Options: (a) minimal in-house layer on X11 (Xlib/xcb via dynamic loading or raw protocol) first, Wayland later; (b) selectively reuse LGPL Wine code (requires explicit owner approval and licensing review); (c) first prove the path with a tiny Win32 test app (RegisterClassW/CreateWindowExW/message loop/`TextOutW`) before Notepad++. Bring a short written design and a recommendation to the owner before building this.
 
 ### Hygiene (do when convenient)
 - Per-section memory protections from PE `Characteristics` (text RX, rdata R, data RW) done in the kernel; `/proc/self/maps` shows the PE's non-text sections labelled `[heap]` (the kernel set `mm->brk` there; cosmetic, but the bridge must never call `brk`).

@@ -82,13 +82,14 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] Files: handle model, file metadata, synchronous file I/O, directory enumeration (`FindFirstFileW` family), drive-type and free-space queries, Windows-style path helpers (`Z:\` mapping)
 - [x] Text: UTF-8 <-> UTF-16 conversion with edge-case tests, code pages, string helpers
 - [x] Time: clocks and file-time conversions (local time is UTC for now), a consistent Windows 10 x64 system profile
-- [x] Headless GUI object layer: handle tables for GDI/USER objects, window class registration, system metrics (no drawing yet)
+- [x] GDI/USER object tables, window class registration and system metrics
+- [x] First visible Unicode Win32 windows: message loops, software fills/lines/pixels, FreeType text, X11/XWayland presentation, resize and basic keyboard/mouse input
 - [x] C++ exception metadata decoder (diagnostic) and `RtlPcToFileHeader`
-- [x] **Milestone: Notepad++ runs through the C runtime startup, creates and joins its worker thread, scans files and directories, and reaches the Windows registry** (`ADVAPI32!RegOpenKeyExA`, key `HKLM\SOFTWARE\Microsoft\Cryptography`): **144 of its 620 imports implemented**
+- [x] Process-local registry tree with A/W APIs and a seeded Windows 10 profile; Notepad++ reaches `bcrypt!BCryptOpenAlgorithmProvider` for SHA256. It does not yet display its main window.
 
 ### In progress / next
-- [ ] A registry model (`HKLM`/`HKCU`, backed by a file) for `RegOpenKeyEx`/`RegQueryValueEx` and friends
-- [ ] GUI: window manager, message queue and message loop, drawing, fonts, input, and a display backend (design decision pending, see below)
+- [ ] Registry persistence, complete Unicode name folding and security descriptors
+- [ ] Full GUI compatibility: child windows/controls, menus/dialogs, cross-thread SendMessage, complete GDI, complex text shaping and native Wayland
 - [ ] x64 structured/C++ exception handling: `.pdata` unwind (`RtlLookupFunctionEntry`, `RtlVirtualUnwind`, `RtlUnwindEx`, `RaiseException`)
 - [ ] Local time zones, APCs, `TerminateThread`, cross-process named objects, TLS for loaded DLLs, loading real PE DLLs
 - [ ] Case-insensitive path handling for `CreateFileW` and friends
@@ -97,10 +98,19 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, and about a dozen DLLs with 1-3 imports each. The window system (USER32 + GDI32) is more than 45% of the surface and is the main remaining cost.
 
-### GUI design (open decision)
-The proposal is a separate native **display helper** process (using normal Linux libraries for the window system, fonts and text rendering) that the bridge talks to over a socket or shared memory, instead of speaking X11 from inside the freestanding bridge. It keeps the bridge small, reuses mature font/text libraries, and makes Wayland a backend swap. We welcome feedback on this design.
+### GUI design
 
-**Realistic expectation:** getting from here to a visible, usable Notepad++ window is a long road measured in months. Smaller Win32 test programs will come first.
+The owner selected an original Windows compatibility layer. The bridge owns
+Windows handles, window procedures and per-thread message queues. A separate
+native `pe_gui_host` process owns X11 and software framebuffers, with Fontconfig
+and FreeType for fonts. It runs through the normal Linux loader, leaving the
+bridge freestanding. There is no Wine/ReactOS code or Windows graphics kernel ABI.
+See [the design](docs/GUI_DESIGN.md).
+
+The first milestone supports custom Unicode top-level windows. The demo draws a
+banner and text, repaints on resize, and closes with Escape or the window-manager
+close button. This is not yet a general Windows desktop/control implementation;
+Notepad++ still stops at its unimplemented SHA256 provider call.
 
 ---
 
@@ -120,20 +130,25 @@ The proposal is a separate native **display helper** process (using normal Linux
 # Kernel module (built against the running kernel's headers; LLVM=1 only if your kernel is clang-built)
 make LLVM=1 -C /lib/modules/$(uname -r)/build M=$PWD/fs modules
 
-# Userland bridge
-gcc -fno-pic -no-pie -fno-stack-protector -static -nostdlib -ffreestanding \
-    -Wl,-Ttext-segment=0x70000000 -Wl,-e,_start -o win32_bridge.so win32_bridge.c
+# Userland bridge + native display helper (Xlib, FreeType, Fontconfig development files)
+bash gui/build.sh
 
-# Load the module (never use rmmod -f unless it is truly stuck)
+# Load the module only if needed (never use rmmod -f)
 lsmod | grep binfmt_pe
 sudo rmmod binfmt_pe 2>/dev/null; true
 sudo insmod fs/binfmt_pe.ko
 
 # Regression suite: builds the test PEs with mingw-w64, runs them, then runs Notepad++ (informational)
 bash tests/run_all.sh
+
+# On an X11/XWayland desktop: include visible windows and X-server pixel/input checks
+PE_GUI_TEST=1 bash tests/run_all.sh
+
+# Interactive demo (Escape or the close button exits)
+./tests/window_demo.exe
 ```
 
-`bash run2.sh` does the build, module reload and a Notepad++ run in one go. Changing only `win32_bridge.c` needs a bridge rebuild but no module reload (the module reads the bridge from disk at exec time). The test PEs need `mingw-w64` (`sudo pacman -S mingw-w64-gcc` on Arch-based systems). `HANDOFF_v3.md` documents the working method in detail.
+`bash run2.sh` does the build, module reload and a Notepad++ run in one go. Changing only `win32_bridge.c` needs a bridge rebuild but no module reload (the module reads the bridge from disk at exec time). The helper needs `pkg-config`, Xlib, FreeType and Fontconfig development files. The regression script rebuilds both helper and bridge. `gui/build.sh` records the helper location; use `BINFMT_PE_GUI_HELPER` to override it after moving the build. The test PEs need `mingw-w64` (`sudo pacman -S mingw-w64-gcc` on Arch-based systems). `HANDOFF_v3.md` documents the working method in detail.
 
 Please use a **virtual machine** for development.
 
@@ -143,9 +158,9 @@ Please use a **virtual machine** for development.
 
 | Area | What's needed |
 |---|---|
-| **GUI architecture** | Review the display-helper design; help build the window manager, message queue, GDI drawing, fonts and the X11/Wayland backend |
+| **GUI architecture** | Extend child windows, controls, menus, message semantics, GDI and the Wayland backend |
 | **Exceptions / SEH** | x64 unwind and exception dispatch from `.pdata`, MSVC C++ exception support, with assembly-based tests |
-| **Registry and system services** | A registry model, local time zones, shell folders, COM basics |
+| **Registry and system services** | Registry persistence/security, local time zones, COM basics |
 | **Kernel** | Review of `fs/binfmt_pe.c`; per-section protections, GS/TEB setup in-kernel, hardening against malformed PEs, a core-dump hook |
 | **Win32 API shims** | Remaining `kernel32`/`advapi32`/`shell32` coverage, then `user32`/`gdi32` |
 | **Testing** | More PE test programs for each API group, a CI job that runs them in a VM |
@@ -173,7 +188,7 @@ In spirit, an alternative architecture with the same goal: running Windows progr
 Its startup code runs, including a worker thread and file scans, and it reaches the Windows registry. It does not show a window yet.
 
 **Will it run games / Photoshop / my work software?**
-Not today, and possibly not for a long time. Console programs work; a GUI is the next big step.
+Not today, and possibly not for a long time. Console programs and a small custom-window GUI demo work; complex applications remain unsupported.
 
 **Does this replace Windows?**
 No. It aims to remove one reason people feel they can't leave.
