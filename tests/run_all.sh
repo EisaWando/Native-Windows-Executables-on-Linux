@@ -8,6 +8,21 @@ trap 'rm -rf "$work"' EXIT
 flags=(-O1 -fno-builtin -fno-tree-loop-distribute-patterns -nostdlib
        -ffreestanding -fno-stack-protector -Wl,--entry=mainCRTStartup
        -Wl,--subsystem,console)
+# The kernel reserves exactly 1 MiB for all bridge PT_LOAD memory, including BSS.
+headers=$(readelf -lW win32_bridge.so) || exit 1
+bridge_end=$((0x70000000))
+bridge_segments=0
+while read -r kind offset address physical file_size memory_size rest; do
+    [[ $kind == LOAD ]] || continue
+    if ((address < 0x70000000 || memory_size > 0x100000 || address > 0x70100000-memory_size)); then
+        echo 'FAIL bridge PT_LOAD exceeds the 1 MiB loader window'
+        exit 1
+    fi
+    ((address+memory_size > bridge_end)) && bridge_end=$((address+memory_size))
+    bridge_segments=$((bridge_segments+1))
+done <<< "$headers"
+if ((bridge_segments == 0)); then echo 'FAIL bridge has no PT_LOAD segments'; exit 1; fi
+printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
 for name in hello heap utf exception_diag gdi_objects tls sync paths; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lshlwapi || exit 1
 done
