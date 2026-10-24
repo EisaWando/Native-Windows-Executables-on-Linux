@@ -2475,9 +2475,54 @@ __attribute__((ms_abi)) BOOL DeleteFileW(const uint16_t *path)
     if (r < 0) { SetLastError(pe_file_error(r)); return 0; } return 1;
 }
 
+/* Startup lstr helpers. Comparisons use ordinal ordering and ASCII case folding;
+ * locale-sensitive collation is still a separate, unimplemented surface. */
+#define PE_DEFINE_LSTR(suffix, type, length_fn) \
+__attribute__((ms_abi)) type *lstrcpyn##suffix(type *out, const type *src, int cap) \
+{ \
+    if (!out || !src) { SetLastError(87); return NULL; } \
+    if (cap <= 0) return out; \
+    int i = 0; while (i < cap-1 && src[i]) { out[i] = src[i]; i++; } out[i] = 0; return out; \
+} \
+__attribute__((ms_abi)) type *lstrcpy##suffix(type *out, const type *src) \
+{ \
+    if (!out || !src) { SetLastError(87); return NULL; } \
+    memmove(out, src, (length_fn(src)+1)*sizeof(type)); return out; \
+} \
+__attribute__((ms_abi)) type *lstrcat##suffix(type *out, const type *src) \
+{ \
+    if (!out || !src) { SetLastError(87); return NULL; } \
+    memmove(out+length_fn(out), src, (length_fn(src)+1)*sizeof(type)); return out; \
+} \
+static int pe_lstrcmp##suffix(const type *a, const type *b, bool fold) \
+{ \
+    if (!a || !b) { SetLastError(87); return 0; } \
+    while (*a || *b) { \
+        unsigned x = sizeof(type) == 1 ? (unsigned char)*a : (uint16_t)*a; \
+        unsigned y = sizeof(type) == 1 ? (unsigned char)*b : (uint16_t)*b; \
+        if (fold) { if (x >= 'A' && x <= 'Z') x += 32; if (y >= 'A' && y <= 'Z') y += 32; } \
+        if (x != y) return x < y ? -1 : 1; a++; b++; \
+    } return 0; \
+} \
+__attribute__((ms_abi)) int lstrcmp##suffix(const type *a, const type *b) { return pe_lstrcmp##suffix(a, b, false); } \
+__attribute__((ms_abi)) int lstrcmpi##suffix(const type *a, const type *b) { return pe_lstrcmp##suffix(a, b, true); }
+PE_DEFINE_LSTR(A, char, lstrlenA)
+PE_DEFINE_LSTR(W, uint16_t, lstrlenW)
+#undef PE_DEFINE_LSTR
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcpynA")) return lstrcpynA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcpynW")) return lstrcpynW;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcpyA")) return lstrcpyA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcpyW")) return lstrcpyW;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcatA")) return lstrcatA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcatW")) return lstrcatW;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcmpA")) return lstrcmpA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcmpW")) return lstrcmpW;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcmpiA")) return lstrcmpiA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrcmpiW")) return lstrcmpiW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesExW")) return GetFileAttributesExW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesExA")) return GetFileAttributesExA;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileAttributesW")) return GetFileAttributesW;
