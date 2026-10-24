@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <ucontext.h>
 #include <sys/syscall.h>
+#include <sys/stat.h>
 
 #ifndef SA_RESTORER
 #define SA_RESTORER 0x04000000
@@ -809,9 +810,57 @@ __attribute__((ms_abi)) char *GetCommandLineA(void) { return (char *)pe_cmdline_
 __attribute__((ms_abi)) uint16_t *GetEnvironmentStringsW(void) { return (uint16_t *)pe_env_w; }
 __attribute__((ms_abi)) int FreeEnvironmentStringsW(uint16_t *p) { (void)p; return 1; }
 
+/* Batch B: descriptor type, UTF-8 code page metadata and monotonic time. */
+__attribute__((ms_abi)) DWORD GetFileType(HANDLE h)
+{
+    struct stat st;
+    int fd = pe_handle_to_fd(h);
+    if (fd < 0) { SetLastError(6); return 0; }
+    long r = raw_syscall3(SYS_fstat, fd, (long)&st, 0);
+    if (r < 0) { SetLastError(r == -9 ? 6 : 5); return 0; }
+    switch (st.st_mode & S_IFMT) {
+    case S_IFCHR: return 2;
+    case S_IFREG: case S_IFDIR: return 1;
+    case S_IFIFO: case S_IFSOCK: return 3;
+    default: SetLastError(0); return 0;
+    }
+}
+__attribute__((ms_abi)) DWORD GetACP(void) { return 65001; }
+__attribute__((ms_abi)) DWORD GetOEMCP(void) { return 65001; }
+struct pe_cpinfo { uint32_t max_char_size; uint8_t default_char[2], lead_byte[12]; };
+__attribute__((ms_abi)) BOOL GetCPInfo(DWORD cp, struct pe_cpinfo *out)
+{
+    if (!out || (cp != 0 && cp != 1 && cp != 65001)) { SetLastError(87); return 0; }
+    memset(out, 0, sizeof(*out)); out->max_char_size = 4; out->default_char[0] = '?'; return 1;
+}
+__attribute__((ms_abi)) int lstrlenA(const char *s) { return s ? cstring_length(s) : 0; }
+__attribute__((ms_abi)) int lstrlenW(const uint16_t *s)
+{ int n = 0; if (s) while (s[n]) n++; return n; }
+__attribute__((ms_abi)) void Sleep(DWORD ms)
+{
+    struct pe_timespec req = {ms / 1000, (ms % 1000) * 1000000LL}, rem;
+    while (raw_syscall3(SYS_nanosleep, (long)&req, (long)&rem, 0) == -4) req = rem;
+}
+__attribute__((ms_abi)) uint64_t GetTickCount64(void)
+{
+    struct pe_timespec ts;
+    if (raw_syscall3(SYS_clock_gettime, 1, (long)&ts, 0)) return 0;
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+__attribute__((ms_abi)) DWORD GetTickCount(void) { return GetTickCount64(); }
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileType")) return GetFileType;
+    if (!by_ordinal && ascii_equal_ci(function, "GetACP")) return GetACP;
+    if (!by_ordinal && ascii_equal_ci(function, "GetOEMCP")) return GetOEMCP;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCPInfo")) return GetCPInfo;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrlenA")) return lstrlenA;
+    if (!by_ordinal && ascii_equal_ci(function, "lstrlenW")) return lstrlenW;
+    if (!by_ordinal && ascii_equal_ci(function, "Sleep")) return Sleep;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTickCount64")) return GetTickCount64;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTickCount")) return GetTickCount;
 	(void)dll;
 	if (!by_ordinal && ascii_equal_ci(function, "GetStdHandle"))
 		return GetStdHandle;
