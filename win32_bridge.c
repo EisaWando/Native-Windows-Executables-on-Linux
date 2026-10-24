@@ -1116,9 +1116,469 @@ __attribute__((ms_abi)) void OutputDebugStringW(const uint16_t *s)
     if (n > 0 && n <= (int)sizeof(buf) && WideCharToMultiByte(65001, 0, s, -1, buf, sizeof(buf), 0, 0)) OutputDebugStringA(buf);
 }
 
+/* Headless GUI objects: no display connection, rasterization or window dispatch.
+ * Handles encode slot + generation; exhausted generations are never reused. */
+#define PE_GUI_BASE 0x50000000ULL
+#define PE_GUI_SLOTS 1024
+#define PE_GUI_LIMIT 0x60000000ULL
+#define PE_GDI_PEN 1
+#define PE_GDI_BRUSH 2
+#define PE_GDI_DC 3
+#define PE_GDI_PALETTE 5
+#define PE_GDI_FONT 6
+#define PE_GDI_BITMAP 7
+#define PE_GDI_REGION 8
+#define PE_GDI_MEMDC 10
+#define PE_GUI_ICON 20
+#define PE_GUI_CURSOR 21
+#define PE_GUI_MENU 22
+#define PE_GUI_WINDOW 23
+struct pe_logfont {
+    int32_t height, width, escapement, orientation, weight;
+    uint8_t italic, underline, strikeout, charset, outprec, clipprec, quality, pitch;
+    uint16_t face[32];
+};
+struct pe_logbrush { uint32_t style, color; uint64_t hatch; };
+struct pe_logpen { uint32_t style; int32_t x, y; uint32_t color; };
+struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bpp; void *bits; };
+struct pe_gui_object {
+    uint32_t type, generation, selected, shared;
+    HANDLE owner;
+    struct { uintptr_t module, resource; uint32_t flags; int32_t width, height; uint16_t name[64]; } image;
+    union {
+        struct pe_logbrush brush;
+        struct pe_logpen pen;
+        struct pe_logfont font;
+        struct pe_bitmap bitmap;
+        struct { HANDLE pen, brush, font, bitmap, palette; HANDLE owner; } dc;
+        int32_t rect[4];
+    } u;
+};
+static struct pe_gui_object pe_gui_objects[PE_GUI_SLOTS];
+static HANDLE pe_stocks[20];
+_Static_assert(sizeof(struct pe_logfont) == 92, "LOGFONTW layout");
+_Static_assert(sizeof(struct pe_logbrush) == 16, "LOGBRUSH layout");
+_Static_assert(sizeof(struct pe_bitmap) == 32, "BITMAP layout");
+static HANDLE pe_gui_handle(struct pe_gui_object *o)
+{
+    return (HANDLE)(uintptr_t)(PE_GUI_BASE+4*((uint64_t)o->generation*PE_GUI_SLOTS+(o-pe_gui_objects)));
+}
+static struct pe_gui_object *pe_gui_lookup(HANDLE h, unsigned type)
+{
+    uintptr_t v = (uintptr_t)h;
+    if (v >= PE_GUI_BASE && v < PE_GUI_LIMIT && !(v & 3)) {
+        v = (v-PE_GUI_BASE)/4;
+        struct pe_gui_object *o = &pe_gui_objects[v%PE_GUI_SLOTS];
+        if (o->type && o->generation == v/PE_GUI_SLOTS && (!type || o->type == type)) return o;
+    }
+    SetLastError(6); return NULL;
+}
+static struct pe_gui_object *pe_gui_new(unsigned type)
+{
+    for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
+        struct pe_gui_object *o = &pe_gui_objects[i];
+        if (!o->type && o->generation < 65535) {
+            unsigned generation = o->generation+1;
+            memset(o, 0, sizeof(*o)); o->generation = generation; o->type = type;
+            return o;
+        }
+    }
+    SetLastError(8); return NULL;
+}
+static void pe_gui_drop(struct pe_gui_object *o) { o->type = 0; }
+static void pe_default_font(struct pe_logfont *font)
+{
+    memset(font, 0, sizeof(*font)); font->height = -12; font->weight = 400; font->charset = 1;
+    const char *name = "Segoe UI";
+    for (int i = 0; name[i]; i++) font->face[i] = name[i];
+}
+__attribute__((ms_abi)) HANDLE CreateSolidBrush(DWORD color)
+{
+    struct pe_gui_object *o = pe_gui_new(PE_GDI_BRUSH); if (!o) return NULL;
+    o->u.brush.color = color & 0xffffff; return pe_gui_handle(o);
+}
+__attribute__((ms_abi)) HANDLE CreatePen(int style, int width, DWORD color)
+{
+    if (style < 0 || style > 6 || width == INT32_MIN) { SetLastError(87); return NULL; }
+    struct pe_gui_object *o = pe_gui_new(PE_GDI_PEN); if (!o) return NULL;
+    o->u.pen = (struct pe_logpen){style, width < 0 ? -width : width, 0, color & 0xffffff}; return pe_gui_handle(o);
+}
+__attribute__((ms_abi)) HANDLE CreateFontIndirectW(const struct pe_logfont *font)
+{
+    if (!font) { SetLastError(87); return NULL; }
+    struct pe_gui_object *o = pe_gui_new(PE_GDI_FONT); if (!o) return NULL;
+    o->u.font = *font; o->u.font.face[31] = 0; return pe_gui_handle(o);
+}
+__attribute__((ms_abi)) HANDLE CreateFontW(int height, int width, int escape, int orient, int weight,
+    DWORD italic, DWORD underline, DWORD strike, DWORD charset, DWORD outprec,
+    DWORD clipprec, DWORD quality, DWORD pitch, const uint16_t *face)
+{
+    struct pe_logfont f = {height, width, escape, orient, weight,
+        italic, underline, strike, charset, outprec, clipprec, quality, pitch, {0}};
+    if (face) for (unsigned i = 0; i < 31 && face[i]; i++) f.face[i] = face[i];
+    return CreateFontIndirectW(&f);
+}
+__attribute__((ms_abi)) HANDLE GetStockObject(int id)
+{
+    if (id < 0 || id >= 20 || id == 9) { SetLastError(87); return NULL; }
+    if (pe_stocks[id]) return pe_stocks[id];
+    HANDLE h = NULL;
+    if (id <= 5 || id == 18) {
+        static const DWORD colors[6] = {0xffffff, 0xc0c0c0, 0x808080, 0x404040, 0, 0};
+        h = CreateSolidBrush(id <= 5 ? colors[id] : 0xffffff);
+        if (h && id == 5) pe_gui_lookup(h, PE_GDI_BRUSH)->u.brush.style = 1;
+    } else if (id <= 8 || id == 19) h = CreatePen(id == 8 ? 5 : 0, 1, id == 6 ? 0xffffff : 0);
+    else if (id == 15) {
+        struct pe_gui_object *o = pe_gui_new(PE_GDI_PALETTE); if (o) h = pe_gui_handle(o);
+    } else { struct pe_logfont f; pe_default_font(&f); h = CreateFontIndirectW(&f); }
+    if (h) { pe_gui_lookup(h, 0)->shared = 1; pe_stocks[id] = h; }
+    return h;
+}
+static struct pe_gui_object *pe_dc_lookup(HANDLE h)
+{
+    struct pe_gui_object *o = pe_gui_lookup(h, 0);
+    if (o && (o->type == PE_GDI_DC || o->type == PE_GDI_MEMDC)) return o;
+    SetLastError(6); return NULL;
+}
+static HANDLE pe_new_dc(unsigned type, HANDLE owner)
+{
+    struct pe_gui_object *o = pe_gui_new(type); if (!o) return NULL;
+    HANDLE h = pe_gui_handle(o);
+    o->u.dc.pen = GetStockObject(7); o->u.dc.brush = GetStockObject(0);
+    o->u.dc.font = GetStockObject(13); o->u.dc.palette = GetStockObject(15);
+    struct pe_gui_object *b = pe_gui_new(PE_GDI_BITMAP);
+    if (!o->u.dc.pen || !o->u.dc.brush || !o->u.dc.font || !o->u.dc.palette || !b) { pe_gui_drop(o); return NULL; }
+    b->shared = 1; b->owner = h; b->u.bitmap = (struct pe_bitmap){0, 1, 1, 2, 1, 1, NULL};
+    o->u.dc.bitmap = pe_gui_handle(b); o->u.dc.owner = owner;
+    HANDLE initial[] = {o->u.dc.pen, o->u.dc.brush, o->u.dc.font, o->u.dc.bitmap, o->u.dc.palette};
+    for (unsigned i = 0; i < 5; i++) pe_gui_lookup(initial[i], 0)->selected++;
+    return h;
+}
+__attribute__((ms_abi)) HANDLE CreateCompatibleDC(HANDLE source)
+{ if (source && !pe_dc_lookup(source)) return NULL; return pe_new_dc(PE_GDI_MEMDC, NULL); }
+__attribute__((ms_abi)) BOOL DeleteObject(HANDLE h)
+{
+    struct pe_gui_object *o = pe_gui_lookup(h, 0); if (!o) return 0;
+    if (o->type != PE_GDI_PEN && o->type != PE_GDI_BRUSH && o->type != PE_GDI_FONT &&
+        o->type != PE_GDI_BITMAP && o->type != PE_GDI_PALETTE && o->type != PE_GDI_REGION) { SetLastError(6); return 0; }
+    if (o->shared) return 1;
+    if (o->selected) { SetLastError(170); return 0; }
+    pe_gui_drop(o); return 1;
+}
+static void pe_drop_dc(struct pe_gui_object *o)
+{
+    HANDLE handles[] = {o->u.dc.pen, o->u.dc.brush, o->u.dc.font, o->u.dc.bitmap, o->u.dc.palette};
+    for (unsigned i = 0; i < 5; i++) {
+        struct pe_gui_object *s = pe_gui_lookup(handles[i], 0); if (s) s->selected--;
+    }
+    /* The private monochrome default bitmap is owned by this DC. */
+    for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
+        struct pe_gui_object *b = &pe_gui_objects[i];
+        if (b->type == PE_GDI_BITMAP && b->shared && b->owner == pe_gui_handle(o)) pe_gui_drop(b);
+    }
+    pe_gui_drop(o);
+}
+__attribute__((ms_abi)) BOOL DeleteDC(HANDLE h)
+{ struct pe_gui_object *o = pe_gui_lookup(h, PE_GDI_MEMDC); if (!o) return 0; pe_drop_dc(o); return 1; }
+__attribute__((ms_abi)) HANDLE SelectObject(HANDLE dc, HANDLE h)
+{
+    struct pe_gui_object *d = pe_dc_lookup(dc), *o = pe_gui_lookup(h, 0);
+    if (!d || !o) return NULL;
+    HANDLE *slot;
+    switch (o->type) {
+    case PE_GDI_PEN: slot = &d->u.dc.pen; break;
+    case PE_GDI_BRUSH: slot = &d->u.dc.brush; break;
+    case PE_GDI_FONT: slot = &d->u.dc.font; break;
+    case PE_GDI_BITMAP:
+        if (d->type != PE_GDI_MEMDC || (o->owner && o->owner != dc) || (o->selected && d->u.dc.bitmap != h)) { SetLastError(87); return NULL; }
+        slot = &d->u.dc.bitmap; break;
+    default: SetLastError(87); return NULL;
+    }
+    HANDLE old = *slot;
+    pe_gui_lookup(old, 0)->selected--; *slot = h; o->selected++; return old;
+}
+__attribute__((ms_abi)) DWORD GetObjectType(HANDLE h)
+{ struct pe_gui_object *o = pe_gui_lookup(h, 0);
+    if (!o || o->type > 14) { SetLastError(6); return 0; }
+    return o->type; }
+__attribute__((ms_abi)) HANDLE GetCurrentObject(HANDLE dc, unsigned type)
+{
+    struct pe_gui_object *d = pe_dc_lookup(dc); if (!d) return NULL;
+    switch (type) {
+    case PE_GDI_PEN: return d->u.dc.pen; case PE_GDI_BRUSH: return d->u.dc.brush;
+    case PE_GDI_FONT: return d->u.dc.font; case PE_GDI_BITMAP: return d->u.dc.bitmap;
+    case PE_GDI_PALETTE: return d->u.dc.palette; default: SetLastError(87); return NULL;
+    }
+}
+__attribute__((ms_abi)) int GetObjectW(HANDLE h, int bytes, void *out)
+{
+    struct pe_gui_object *o = pe_gui_lookup(h, 0); if (!o) return 0;
+    const void *src; unsigned size;
+    static const uint16_t palette_entries = 20;
+    switch (o->type) {
+    case PE_GDI_BRUSH: src = &o->u.brush; size = sizeof(o->u.brush); break;
+    case PE_GDI_PEN: src = &o->u.pen; size = sizeof(o->u.pen); break;
+    case PE_GDI_FONT: src = &o->u.font; size = sizeof(o->u.font); break;
+    case PE_GDI_BITMAP: src = &o->u.bitmap; size = sizeof(o->u.bitmap); break;
+    case PE_GDI_PALETTE: src = &palette_entries; size = sizeof(palette_entries); break;
+    default: SetLastError(87); return 0;
+    }
+    if (!out) return size;
+    if (bytes < 0) { SetLastError(87); return 0; }
+    if ((unsigned)bytes < size) size = bytes;
+    memcpy(out, src, size); return size;
+}
+__attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
+{
+    if (!pe_dc_lookup(dc)) return 0;
+    switch (index) {
+    case 0: return 0x100; case 2: return 1; /* version, raster display */
+    case 4: return 508; case 6: return 286; /* physical mm at 96 DPI */
+    case 8: case 118: return 1920; case 10: case 117: return 1080;
+    case 12: return 32; case 14: return 1; case 24: return -1;
+    case 88: case 90: return 96;
+    default: return 0; /* unsupported capabilities */
+    }
+}
+
+/* Read-only headless desktop profile. No HWND is manufactured here. */
+__attribute__((ms_abi)) HANDLE GetDC(HANDLE window)
+{
+    if (window && !pe_gui_lookup(window, PE_GUI_WINDOW)) return NULL;
+    return pe_new_dc(PE_GDI_DC, window);
+}
+__attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc)
+{
+    struct pe_gui_object *o = pe_gui_lookup(dc, PE_GDI_DC);
+    if (!o) return 0;
+    if (o->u.dc.owner != window) { SetLastError(6); return 0; }
+    pe_drop_dc(o); return 1;
+}
+__attribute__((ms_abi)) int GetSystemMetrics(int index)
+{
+    switch (index) {
+    case 0: case 16: case 78: return 1920;
+    case 1: case 79: return 1080;
+    case 17: return 1017;
+    case 2: case 3: case 9: case 10: case 20: case 21: case 30: case 31: return 17;
+    case 4: return 23; case 15: case 51: case 54: case 55: return 19;
+    case 5: case 6: case 83: case 84: return 1;
+    case 7: case 8: case 32: case 33: case 36: case 37: case 68: case 69: case 92: return 4;
+    case 11: case 12: case 13: case 14: return 32;
+    case 19: case 44: case 63: case 75: case 80: case 81: return 1;
+    case 28: case 34: return 112; case 29: case 35: return 27;
+    case 38: case 39: return 75; case 43: return 3;
+    case 45: case 46: return 2;
+    case 49: case 50: case 52: case 53: return 16;
+    case 59: case 61: return 1928; case 60: case 62: return 1088;
+    case 71: case 72: return 13;
+    default: return 0; /* absent features/unsupported metric */
+    }
+}
+__attribute__((ms_abi)) DWORD GetSysColor(int index)
+{
+    /* COLORREF (BGR), deterministic light desktop colors, not dark-mode policy. */
+    static const DWORD colors[31] = {
+        0xc8c8c8, 0, 0xd77800, 0xbfcddb, 0xf0f0f0, 0xffffff, 0x646464,
+        0, 0, 0xffffff, 0xb4b4b4, 0xfcf7f4, 0xababab, 0xd77800, 0xffffff,
+        0xf0f0f0, 0xa0a0a0, 0x6d6d6d, 0, 0, 0xffffff, 0x696969,
+        0xe3e3e3, 0, 0xffffe1, 0, 0xcc6600, 0xead1b9, 0xf2e4d7,
+        0xd77800, 0xf0f0f0
+    };
+    if (index < 0 || index >= 31) { SetLastError(87); return 0; }
+    return colors[index];
+}
+struct pe_nonclient {
+    uint32_t size; int32_t border, scroll_width, scroll_height, caption_width, caption_height;
+    struct pe_logfont caption_font;
+    int32_t small_caption_width, small_caption_height; struct pe_logfont small_caption_font;
+    int32_t menu_width, menu_height; struct pe_logfont menu_font, status_font, message_font;
+    int32_t padded_border;
+};
+_Static_assert(sizeof(struct pe_nonclient) == 504, "NONCLIENTMETRICSW layout");
+__attribute__((ms_abi)) BOOL SystemParametersInfoW(unsigned action, unsigned param, void *out, unsigned flags)
+{
+    (void)flags;
+    if (!out) { SetLastError(87); return 0; }
+    switch (action) {
+    case 0x29: {
+        uint32_t size = *(uint32_t *)out;
+        if ((size != 500 && size != sizeof(struct pe_nonclient)) || param != size) { SetLastError(87); return 0; }
+        struct pe_nonclient m = {0}; m.size = size;
+        m.border = 1; m.scroll_width = m.scroll_height = 17;
+        m.caption_width = 18; m.caption_height = 23;
+        m.small_caption_width = m.small_caption_height = 19; m.menu_width = m.menu_height = 19;
+        m.padded_border = 4;
+        pe_default_font(&m.caption_font); m.caption_font.weight = 700;
+        pe_default_font(&m.small_caption_font); pe_default_font(&m.menu_font);
+        pe_default_font(&m.status_font); pe_default_font(&m.message_font);
+        memcpy(out, &m, size); return 1;
+    }
+    case 0x1f:
+        if (param != sizeof(struct pe_logfont)) { SetLastError(87); return 0; }
+        pe_default_font(out); return 1;
+    case 0x2d: { /* ICONMETRICSW */
+        struct { uint32_t size; int32_t x, y, wrap; struct pe_logfont font; } m = {108, 75, 75, 1, {0}};
+        if (*(DWORD *)out != sizeof(m) || param != sizeof(m)) { SetLastError(87); return 0; }
+        pe_default_font(&m.font); memcpy(out, &m, sizeof(m)); return 1;
+    }
+    case 0x30: { int32_t rect[4] = {0, 0, 1920, 1040}; memcpy(out, rect, sizeof(rect)); return 1; }
+    case 0x42: { /* HIGHCONTRASTW */
+        struct { uint32_t size, flags; const uint16_t *scheme; } m = {16, 0, NULL};
+        if (*(DWORD *)out != sizeof(m)) { SetLastError(87); return 0; }
+        memcpy(out, &m, sizeof(m)); return 1;
+    }
+    case 0x48: /* ANIMATIONINFO */
+        if (*(DWORD *)out != 8) { SetLastError(87); return 0; }
+        ((DWORD *)out)[1] = 0; return 1;
+    case 0x68: case 0x6c: *(DWORD *)out = 3; return 1;
+    case 0x200a: *(DWORD *)out = 2; return 1;
+    case 0x200c: *(DWORD *)out = 1400; return 1;
+    case 0x2012: case 0x4a: case 0x1022: case 0x100a: *(DWORD *)out = 1; return 1;
+    case 0x1002: case 0x103e: *(DWORD *)out = 0; return 1;
+    default: SetLastError(50); return 0; /* no silent success for unhandled SPI */
+    }
+}
+struct pe_wndclassex {
+    uint32_t size, style; void *wndproc; int32_t class_extra, window_extra;
+    HANDLE instance, icon, cursor, background;
+    const uint16_t *menu_name, *class_name; HANDLE small_icon;
+};
+struct pe_gui_class {
+    uint16_t atom; uint16_t name[256], menu[256];
+    struct pe_wndclassex data; void *extra;
+};
+static struct pe_gui_class pe_gui_classes[64];
+_Static_assert(sizeof(struct pe_wndclassex) == 80, "WNDCLASSEXW layout");
+static bool pe_copy_name(uint16_t *out, unsigned cap, const uint16_t *src)
+{
+    for (unsigned i = 0; i < cap; i++) { out[i] = src[i]; if (!src[i]) return true; }
+    SetLastError(87); return false;
+}
+static bool pe_name_equal(const uint16_t *a, const uint16_t *b)
+{
+    while (*a || *b) {
+        unsigned x = *a++, y = *b++;
+        if (x >= 'A' && x <= 'Z') x += 32;
+        if (y >= 'A' && y <= 'Z') y += 32;
+        if (x != y) return false;
+    }
+    return true;
+}
+__attribute__((ms_abi)) uint16_t RegisterClassExW(const struct pe_wndclassex *c)
+{
+    if (!c || c->size != sizeof(*c) || (uintptr_t)c->class_name < 65536 || !*c->class_name || !c->wndproc ||
+        c->class_extra < 0 || c->window_extra < 0 || c->class_extra > 4096 || c->window_extra > 4096) { SetLastError(87); return 0; }
+    struct pe_gui_class *free = NULL;
+    for (unsigned i = 0; i < 64; i++) {
+        struct pe_gui_class *v = &pe_gui_classes[i];
+        if (!v->atom) { if (!free) free = v; }
+        else if (v->data.instance == c->instance && pe_name_equal(v->name, c->class_name)) { SetLastError(1410); return 0; }
+    }
+    if (c->icon && !pe_gui_lookup(c->icon, PE_GUI_ICON)) return 0;
+    if (c->small_icon && !pe_gui_lookup(c->small_icon, PE_GUI_ICON)) return 0;
+    if (c->cursor && !pe_gui_lookup(c->cursor, PE_GUI_CURSOR)) return 0;
+    if ((uintptr_t)c->background > 31 && !pe_gui_lookup(c->background, PE_GDI_BRUSH)) return 0;
+    if (!free) { SetLastError(8); return 0; }
+    if (!pe_copy_name(free->name, 256, c->class_name)) return 0;
+    if ((uintptr_t)c->menu_name >= 65536 && !pe_copy_name(free->menu, 256, c->menu_name)) return 0;
+    free->extra = c->class_extra ? pe_heap_alloc(c->class_extra, PE_HEAP_ZERO) : NULL;
+    if (c->class_extra && !free->extra) { SetLastError(8); return 0; }
+    free->data = *c; free->data.class_name = free->name;
+    if ((uintptr_t)c->menu_name >= 65536) free->data.menu_name = free->menu;
+    free->atom = 0xc000+(free-pe_gui_classes); return free->atom;
+}
+static struct pe_gui_class *pe_class_lookup(HANDLE instance, const uint16_t *name)
+{
+    for (unsigned i = 0; i < 64; i++) {
+        struct pe_gui_class *v = &pe_gui_classes[i];
+        if (v->atom && v->data.instance == instance &&
+            ((uintptr_t)name < 65536 ? (uintptr_t)name == v->atom : pe_name_equal(v->name, name))) return v;
+    }
+    SetLastError(1411); return NULL;
+}
+__attribute__((ms_abi)) BOOL GetClassInfoExW(HANDLE instance, const uint16_t *name, struct pe_wndclassex *out)
+{
+    if (!name || !out || out->size != sizeof(*out)) { SetLastError(87); return 0; }
+    struct pe_gui_class *v = pe_class_lookup(instance, name); if (!v) return 0;
+    *out = v->data; return 1;
+}
+__attribute__((ms_abi)) BOOL UnregisterClassW(const uint16_t *name, HANDLE instance)
+{
+    if (!name) { SetLastError(87); return 0; }
+    struct pe_gui_class *v = pe_class_lookup(instance, name); if (!v) return 0;
+    pe_heap_free(v->extra); memset(v, 0, sizeof(*v)); return 1;
+}
+__attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name, unsigned type, int width, int height, unsigned flags)
+{
+    if (!name || type > 2 || width < 0 || width > INT32_MAX/4 || height < 0) { SetLastError(87); return NULL; }
+    if (flags & 0x10) { SetLastError(50); return NULL; } /* LR_LOADFROMFILE needs actual file/resource decoding */
+    unsigned tag = type == 0 ? PE_GDI_BITMAP : type == 1 ? PE_GUI_ICON : PE_GUI_CURSOR;
+    uint16_t copy[64] = {0};
+    if ((uintptr_t)name >= 65536 && !pe_copy_name(copy, 64, name)) return NULL;
+    if (flags & 0x8000) for (unsigned i = 0; i < PE_GUI_SLOTS; i++) {
+        struct pe_gui_object *s = &pe_gui_objects[i];
+        if (s->type == tag && s->shared && s->image.module == (uintptr_t)instance &&
+            s->image.width == (width ? width : 32) && s->image.height == (height ? height : 32) &&
+            s->image.flags == flags && ((uintptr_t)name < 65536 ? s->image.resource == (uintptr_t)name :
+                !s->image.resource && pe_name_equal(s->image.name, copy))) return pe_gui_handle(s);
+    }
+    struct pe_gui_object *o = pe_gui_new(tag); if (!o) return NULL;
+    o->shared = !!(flags & 0x8000);
+    if (tag == PE_GDI_BITMAP) o->u.bitmap = (struct pe_bitmap){0, width ? width : 32, height ? height : 32, (width ? width : 32)*4, 1, 32, NULL};
+    {
+        o->image.module = (uintptr_t)instance; o->image.resource = (uintptr_t)name < 65536 ? (uintptr_t)name : 0;
+        o->image.flags = flags; o->image.width = width ? width : 32; o->image.height = height ? height : 32;
+        memcpy(o->image.name, copy, sizeof(copy));
+    }
+    return pe_gui_handle(o);
+}
+__attribute__((ms_abi)) HANDLE LoadCursorW(HANDLE instance, const uint16_t *name)
+{ return LoadImageW(instance, name, 2, 0, 0, 0x8040); }
+__attribute__((ms_abi)) HANDLE LoadIconW(HANDLE instance, const uint16_t *name)
+{ return LoadImageW(instance, name, 1, 0, 0, 0x8040); }
+__attribute__((ms_abi)) BOOL DestroyIcon(HANDLE h)
+{
+    struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_ICON); if (!o) return 0;
+    if (!o->shared) pe_gui_drop(o);
+    return 1;
+}
+__attribute__((ms_abi)) BOOL DestroyCursor(HANDLE h)
+{
+    struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_CURSOR); if (!o) return 0;
+    if (!o->shared) pe_gui_drop(o);
+    return 1;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetDC")) return GetDC;
+    if (!by_ordinal && ascii_equal_ci(function, "ReleaseDC")) return ReleaseDC;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemMetrics")) return GetSystemMetrics;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSysColor")) return GetSysColor;
+    if (!by_ordinal && ascii_equal_ci(function, "SystemParametersInfoW")) return SystemParametersInfoW;
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterClassExW")) return RegisterClassExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClassInfoExW")) return GetClassInfoExW;
+    if (!by_ordinal && ascii_equal_ci(function, "UnregisterClassW")) return UnregisterClassW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadImageW")) return LoadImageW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadCursorW")) return LoadCursorW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadIconW")) return LoadIconW;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyIcon")) return DestroyIcon;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyCursor")) return DestroyCursor;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateSolidBrush")) return CreateSolidBrush;
+    if (!by_ordinal && ascii_equal_ci(function, "CreatePen")) return CreatePen;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFontIndirectW")) return CreateFontIndirectW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFontW")) return CreateFontW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStockObject")) return GetStockObject;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateCompatibleDC")) return CreateCompatibleDC;
+    if (!by_ordinal && ascii_equal_ci(function, "DeleteObject")) return DeleteObject;
+    if (!by_ordinal && ascii_equal_ci(function, "DeleteDC")) return DeleteDC;
+    if (!by_ordinal && ascii_equal_ci(function, "SelectObject")) return SelectObject;
+    if (!by_ordinal && ascii_equal_ci(function, "GetObjectType")) return GetObjectType;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCurrentObject")) return GetCurrentObject;
+    if (!by_ordinal && ascii_equal_ci(function, "GetObjectW")) return GetObjectW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDeviceCaps")) return GetDeviceCaps;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileType")) return GetFileType;
     if (!by_ordinal && ascii_equal_ci(function, "GetACP")) return GetACP;
     if (!by_ordinal && ascii_equal_ci(function, "GetOEMCP")) return GetOEMCP;
