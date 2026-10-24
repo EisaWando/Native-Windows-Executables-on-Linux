@@ -247,16 +247,33 @@ static void install_crash_handler(void)
 		     sizeof(action.mask));
 }
 
+__attribute__((ms_abi)) void SetLastError(DWORD err);
+
+/* Linux limits descriptors to at most 2^20; reserve a disjoint handle range. */
+static HANDLE pe_fd_to_handle(int fd)
+{
+    if (fd < 0 || fd >= 1048576) return (HANDLE)(intptr_t)-1;
+    return (HANDLE)(uintptr_t)(0x40ULL + (uint64_t)fd * 4);
+}
+static int pe_handle_to_fd(HANDLE handle)
+{
+    uintptr_t h = (uintptr_t)handle;
+    if (h < 0x40 || h >= 0x400040 || (h & 3)) return -1;
+    int fd = (h - 0x40) / 4;
+    return raw_syscall3(SYS_fcntl, fd, 1 /* F_GETFD */, 0) < 0 ? -1 : fd;
+}
+
 __attribute__((ms_abi)) HANDLE GetStdHandle(DWORD which)
 {
 	switch ((int32_t)which) {
 	case STD_INPUT_HANDLE:
-		return (HANDLE)0;
+		return pe_fd_to_handle(0);
 	case STD_OUTPUT_HANDLE:
-		return (HANDLE)1;
+		return pe_fd_to_handle(1);
 	case STD_ERROR_HANDLE:
-		return (HANDLE)2;
+		return pe_fd_to_handle(2);
 	default:
+		SetLastError(6);
 		return (HANDLE)(intptr_t)-1;
 	}
 }
@@ -266,8 +283,12 @@ __attribute__((ms_abi)) BOOL WriteFile(HANDLE handle, const void *buffer,
 {
 	long result;
 
-	(void)overlapped;
-	result = raw_syscall3(SYS_write, (intptr_t)handle, (long)buffer, length);
+	int fd = pe_handle_to_fd(handle);
+    if (written) *written = 0;
+    if (fd < 0) { SetLastError(6); return 0; }
+    if (overlapped) { SetLastError(87); return 0; }
+    result = raw_syscall3(SYS_write, fd, (long)buffer, length);
+    if (result < 0) SetLastError(result == -9 ? 6 : result == -14 ? 998 : 5);
 	if (written)
 		*written = result > 0 ? (DWORD)result : 0;
 	return result == (long)length;
