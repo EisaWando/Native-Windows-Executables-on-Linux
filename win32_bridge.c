@@ -482,33 +482,115 @@ void *GetProcAddress(void *m, const char *proc)
 	return NULL;
 }
 
+static uintptr_t pe_main_base, pe_main_end, pe_text_start, pe_text_end;
+
+/* Kernel-mediated copies keep diagnostic reads from causing a second fault. */
+static bool diagnostic_read(uintptr_t addr, void *out, size_t size)
+{
+    if (addr < 0x10000 || addr > 0x7fffffffffffULL ||
+        size > 0x7fffffffffffULL - addr) return false;
+    long fd = raw_syscall3(SYS_open, (long)"/proc/self/mem", 0, 0);
+    if (fd < 0) return false;
+    long n = raw_syscall4(SYS_pread64, fd, (long)out, size, addr);
+    raw_syscall3(SYS_close, fd, 0, 0);
+    return n == (long)size;
+}
+static void diagnostic_image_setup(uintptr_t base)
+{
+    uint32_t nt, size; uint16_t sections, optional;
+    if (!diagnostic_read(base+0x3c, &nt, 4) || nt > 0x1000 ||
+        !diagnostic_read(base+nt+0x18+0x38, &size, 4) || !size ||
+        !diagnostic_read(base+nt+6, &sections, 2) || sections > 96 ||
+        !diagnostic_read(base+nt+20, &optional, 2)) return;
+    pe_main_base = base; pe_main_end = base+size;
+    for (unsigned i = 0; i < sections; i++) {
+        struct { char name[8]; uint32_t size, rva; unsigned char rest[24]; } sec;
+        if (!diagnostic_read(base+nt+24+optional+i*40, &sec, 40)) break;
+        if (sec.name[0] == '.' && sec.name[1] == 't' && sec.name[2] == 'e' &&
+            sec.name[3] == 'x' && sec.name[4] == 't' && !sec.name[5] &&
+            sec.rva < size && sec.size <= size-sec.rva) {
+            pe_text_start = base+sec.rva; pe_text_end = pe_text_start+sec.size;
+        }
+    }
+}
+__attribute__((ms_abi)) void *RtlPcToFileHeader(void *pc, void **base)
+{
+    void *result = (uintptr_t)pc >= pe_main_base && (uintptr_t)pc < pe_main_end ? (void *)pe_main_base : NULL;
+    if (base) *base = result;
+    return result;
+}
+static void diagnostic_backtrace(uintptr_t sp)
+{
+    uintptr_t low, high;
+    __asm__ volatile ("mov %%gs:0x10, %0" : "=r"(low));
+    __asm__ volatile ("mov %%gs:0x08, %0" : "=r"(high));
+    raw_puts(" bt=");
+    if (low >= high || sp < low || sp >= high || (sp & 7)) return;
+    unsigned count = 0;
+    for (unsigned i = 0; i < 512 && high-sp >= 8 && count < 10; i++, sp += 8) {
+        uintptr_t value;
+        if (!diagnostic_read(sp, &value, 8)) break;
+        if (value >= pe_text_start && value < pe_text_end) {
+            if (count++) raw_puts(" ");
+            raw_hex(value);
+        }
+    }
+}
+static bool diagnostic_image_read(uintptr_t addr, void *out, size_t n)
+{
+    return addr >= pe_main_base && addr < pe_main_end && n <= pe_main_end-addr && diagnostic_read(addr, out, n);
+}
+/* Layout verified against Raymond Chen's 2010/2016 public decoding articles:
+ * https://devblogs.microsoft.com/oldnewthing/20100730-00/?p=13273
+ * x64 ThrowInfo+12 -> CTA+4 -> CatchableType+4 -> TypeDescriptor+16.
+ * Links in that chain are 32-bit image-relative RVAs, not native pointers.
+ */
+static void diagnostic_exception(uintptr_t code, uintptr_t flags, uintptr_t nparams, uintptr_t ptr)
+{
+    raw_puts("[BRIDGE] RaiseException code="); raw_hex((uint32_t)code);
+    raw_puts(" flags="); raw_hex((uint32_t)flags);
+    raw_puts(" nparams="); raw_uint((uint32_t)nparams);
+    uint64_t params[4] = {0};
+    if ((uint32_t)code == 0xe06d7363 && nparams >= 3 &&
+        diagnostic_read(ptr, params, (nparams >= 4 ? 4 : 3)*8)) {
+        uintptr_t base = nparams >= 4 ? params[3] : pe_main_base;
+        raw_puts(" object="); raw_hex(params[1]);
+        raw_puts(" ThrowInfo="); raw_hex(params[2]);
+        raw_puts(" image="); raw_hex(base);
+        uint32_t ti[4], cta[2], ct[2];
+        raw_puts(" type=\"");
+        if (base == pe_main_base && diagnostic_image_read(params[2], ti, sizeof(ti)) &&
+            diagnostic_image_read(base+ti[3], cta, sizeof(cta)) && (int32_t)cta[0] > 0 &&
+            diagnostic_image_read(base+cta[1], ct, sizeof(ct))) {
+            for (unsigned i = 0; i < 256; i++) {
+                char c;
+                if (!diagnostic_image_read(base+ct[1]+16+i, &c, 1) || !c) break;
+                if (c < 32 || c > 126) c = '?';
+                raw_write(&c, 1);
+            }
+        } else raw_puts("<unreadable>");
+        raw_puts("\" bytes=");
+        unsigned char bytes[32];
+        if (diagnostic_read(params[1], bytes, sizeof(bytes))) {
+            static const char hex[] = "0123456789abcdef";
+            for (unsigned i = 0; i < sizeof(bytes); i++) {
+                char pair[3] = {hex[bytes[i] >> 4], hex[bytes[i] & 15], ' '};
+                raw_write(pair, sizeof(pair));
+            }
+        } else raw_puts("<unreadable>");
+    }
+    raw_puts("\n");
+}
+
 static void print_utf16_preview(uintptr_t ptr)
 {
-	raw_puts("\"");
-	if (ptr >= 0x10000 && ptr <= 0x7fffffffffffULL) {
-		long test = raw_syscall3(SYS_write, -1, ptr, 1);
-		if (test == -9 /* -EBADF */) {
-			const uint16_t *u16 = (const uint16_t *)ptr;
-			int i;
-			for (i = 0; i < 40; i++) {
-				uint16_t c;
-				char ch;
-				if (((uintptr_t)&u16[i] & 0xfff) == 0) {
-					if (raw_syscall3(SYS_write, -1, (long)&u16[i], 1) != -9)
-						break;
-				}
-				c = u16[i];
-				if (c == 0)
-					break;
-				if (c >= 0x20 && c <= 0x7e)
-					ch = (char)c;
-				else
-					ch = '?';
-				raw_write(&ch, 1);
-			}
-		}
-	}
-	raw_puts("\"");
+    raw_puts("\"");
+    for (unsigned i = 0; i < 40; i++) {
+        uint16_t c; char ch;
+        if (!diagnostic_read(ptr+i*2, &c, 2) || !c) break;
+        ch = c >= 32 && c <= 126 ? c : '?'; raw_write(&ch, 1);
+    }
+    raw_puts("\"");
 }
 
 static __attribute__((noreturn)) void unimplemented_dispatch(unsigned int index,
@@ -516,7 +598,7 @@ static __attribute__((noreturn)) void unimplemented_dispatch(unsigned int index,
 							     uintptr_t rcx,
 							     uintptr_t rdx,
 							     uintptr_t r8,
-							     uintptr_t r9)
+							     uintptr_t r9, uintptr_t entry_sp)
 {
 	struct unknown_import *item = &unknown_imports[index];
 
@@ -535,7 +617,10 @@ static __attribute__((noreturn)) void unimplemented_dispatch(unsigned int index,
 	raw_puts(" r9="); raw_hex(r9);
 	raw_puts(" w1="); print_utf16_preview(rcx);
 	raw_puts(" w2="); print_utf16_preview(rdx);
-	raw_puts("\n");
+    diagnostic_backtrace(entry_sp);
+    raw_puts("\n");
+    if (!item->by_ordinal && ascii_equal_ci(item->function, "RaiseException"))
+        diagnostic_exception(rcx, rdx, r8, r9);
 
 	raw_syscall3(SYS_exit_group, 127, 0, 0);
 	for (;;)
@@ -554,7 +639,10 @@ __attribute__((naked)) static void common_unimplemented_trampoline(void)
 		"mov %r10, %rcx\n\t"     /* arg 4: Win rdx */
 		/* arg 5 (%r8) and arg 6 (%r9) already in %r8 and %r9 */
 		"and $-16, %rsp\n\t"     /* align stack to 16 bytes */
-		"call unimplemented_dispatch\n\t"
+		"sub $16, %rsp\n\t"
+        "lea 8(%rbp), %rax\n\t" /* exact stub-entry RSP, seventh SysV arg */
+        "mov %rax, (%rsp)\n\t"
+        "call unimplemented_dispatch\n\t"
 		"ud2\n\t"
 	);
 }
@@ -1056,6 +1144,7 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "ExpandEnvironmentStringsW")) return ExpandEnvironmentStringsW;
     if (!by_ordinal && ascii_equal_ci(function, "OutputDebugStringA")) return OutputDebugStringA;
     if (!by_ordinal && ascii_equal_ci(function, "OutputDebugStringW")) return OutputDebugStringW;
+    if (!by_ordinal && ascii_equal_ci(function, "RtlPcToFileHeader")) return RtlPcToFileHeader;
 	(void)dll;
 	if (!by_ordinal && ascii_equal_ci(function, "GetStdHandle"))
 		return GetStdHandle;
@@ -1304,6 +1393,7 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
 	bool verbose = false;
 	(void)sp;
 	install_crash_handler();
+    diagnostic_image_setup(image_base);
 #ifdef BRIDGE_VERBOSE
 	verbose = true;
 #endif
