@@ -44,6 +44,27 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: resume Round 3 — resources and menus (2026-10-25)
+
+Main-image bounds-checked PE resource traversal implements FindResourceW/A,
+FindResourceExW, Load/Lock/SizeofResource, LoadStringW/A and EnumResourceNamesW.
+Image handles retain resource payload/bitmap metadata; icon PNG decoding and
+bitmap raster operations remain incomplete. Standard MENU/MENUEX parsing,
+growable typed HMENUs, insertion/query/removal/state, accelerator resources and
+translation are implemented in gui/menus.inc. Class menus load before creation
+callbacks. The X11 helper draws a 24-pixel menu strip and mouse-driven popups;
+client coordinates, painting and size messages exclude the strip. Full Windows
+nonclient borders, keyboard menu navigation and owner-draw menus are incomplete.
+
+`bash tests/run_all.sh > /tmp/r3.log 2>&1` exited 0: all hard fixtures including
+windres-backed resources.exe, 20/20 thread stress and both diagnostics PASS.
+Visible tests explicitly SKIP; the new native menu presenter still needs display
+verification. Bridge PT_LOAD 314104 / 1048576 bytes. No exit 126. Notepad++ now
+passes GetMenu; 267 imports resolved / 353 unimplemented, exit 127 at
+KERNEL32!InitOnceBeginInitialize ret=0x140231a62. No visible Notepad++ window yet.
+Next: real INIT_ONCE state transitions, then the actual control/dialog stops.
+No kernel changes, sudo, reload or push. See docs/SESSION_STATE.md for resume.
+
 ### Latest: resume Round 2 — headless controls and cross-thread sends (2026-10-25)
 
 Added real headless control objects/procedures for Button, Static, Edit, ListBox,

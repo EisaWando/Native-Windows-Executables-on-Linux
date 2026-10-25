@@ -73,7 +73,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 			(uint16_t)x | ((uint32_t)(uint16_t)y << 16));
 	if (!w->dead && resized)
 		w->proc(hwnd, 5, 0,
-			(uint16_t)width | ((uint32_t)(uint16_t)height << 16));
+			(uint16_t)width | ((uint32_t)(uint16_t)(height - pe_window_menu_height(w)) << 16));
 	return !w->dead;
 }
 __attribute__((ms_abi)) BOOL MoveWindow(HANDLE hwnd, int x, int y, int width,

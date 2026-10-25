@@ -21,7 +21,10 @@ enum {
 	PG_EVENT,
 	PG_RESIZE,
 	PG_VERIFY,
-	PG_POSITION
+	PG_POSITION,
+	PG_MENU_BEGIN,
+	PG_MENU_ITEM,
+	PG_MENU_END
 };
 struct pg_packet {
 	uint32_t magic, op;

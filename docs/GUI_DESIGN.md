@@ -50,3 +50,12 @@ Hidden-window semantics and per-window properties/subclass chains were verified
 on 2026-10-25. Zero/negative sizes are retained in logical state; physical X11
 surfaces use at least one pixel and are bounded to 4096x4096. Stored styles such
 as LAYERED/ACCEPTFILES do not imply those effects/transport are implemented.
+
+Resource/menu layer (2026-10-25): main-image PE resources use guarded reads and
+bounds-checked directory offsets. Class menu resources are instantiated before
+WM_NCCREATE. HMENUs and accelerators use typed, growable mmap-backed objects.
+The helper draws the menu bar inside the X11 surface; the bridge reserves 24
+pixels and offsets application drawing/input so GetClientRect, WM_SIZE,
+WM_NCCALCSIZE and AdjustWindowRect agree. Mouse popups send WM_COMMAND.
+Keyboard menu navigation, owner draw and complete frame metrics remain pending.
+Resource fixtures passed headlessly; native menu rendering is not yet verified.

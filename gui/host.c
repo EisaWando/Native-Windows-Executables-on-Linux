@@ -15,7 +15,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdbool.h>
+struct native_menu_entry;
 struct surface {
+	struct native_menu_entry *menu_items;
+	int menu_height;
+	bool painting_menu;
+	uint32_t root_menu, active_menu;
+	Window popup;
+	int popup_x, popup_y, popup_width, popup_height;
 	struct surface *next;
 	uint64_t id;
 	Window window;
@@ -48,7 +56,7 @@ static struct surface *lookup(uint64_t id)
 static struct surface *by_window(Window window)
 {
 	for (struct surface *s = surfaces; s; s = s->next)
-		if (s->window == window)
+		if (s->window == window || s->popup == window)
 			return s;
 	return NULL;
 }
@@ -87,7 +95,8 @@ static uint32_t rgb_pixel(XImage *im, int x, int y)
 }
 static void pixel(struct surface *s, int x, int y, uint32_t rgb)
 {
-	if (x >= 0 && y >= 0 && x < s->width && y < s->height)
+	if (x >= 0 && y >= (s->painting_menu ? 0 : s->menu_height) &&
+	    x < s->width && y < s->height)
 		XPutPixel(s->image, x, y, native_pixel(s->image, rgb));
 }
 static int resize_surface(struct surface *s, int width, int height)
@@ -125,8 +134,8 @@ static void fill(struct surface *s, int x, int y, int right, int bottom,
 {
 	if (x < 0)
 		x = 0;
-	if (y < 0)
-		y = 0;
+	if (y < (s->painting_menu ? 0 : s->menu_height))
+		y = s->painting_menu ? 0 : s->menu_height;
 	if (right > s->width)
 		right = s->width;
 	if (bottom > s->height)
@@ -288,6 +297,24 @@ static unsigned vk(KeySym sym)
 		return 0;
 	}
 }
+#include "host_menus.inc"
+static void present_surface(struct surface *s)
+{
+	if (!s->backbuffer || s->back_width != s->width ||
+	    s->back_height != s->height) {
+		if (s->backbuffer)
+			XFreePixmap(display, s->backbuffer);
+		s->backbuffer = XCreatePixmap(
+			display, s->window, s->width, s->height,
+			DefaultDepth(display, DefaultScreen(display)));
+		s->back_width = s->width;
+		s->back_height = s->height;
+	}
+	XPutImage(display, s->backbuffer, s->gc, s->image, 0, 0, 0, 0, s->width,
+		  s->height);
+	XCopyArea(display, s->backbuffer, s->window, s->gc, 0, 0, s->width,
+		  s->height, 0, 0);
+}
 static void event_packet(struct pg_packet *p)
 {
 	struct pollfd fd = { ConnectionNumber(display), POLLIN, 0 };
@@ -305,6 +332,11 @@ static void event_packet(struct pg_packet *p)
 		p->id = s->id;
 		p->b = p->c = p->d = 0;
 		p->flags = 0;
+		int menu_event = native_menu_event(s, &e, p);
+		if (menu_event == 2)
+			return;
+		if (menu_event == 1)
+			continue;
 		switch (e.type) {
 		case Expose:
 			if (e.xexpose.count)
@@ -465,6 +497,7 @@ int main(void)
 				while (*link != s)
 					link = &(*link)->next;
 				*link = s->next;
+				native_menu_clear(s);
 				XDestroyWindow(display, s->window);
 				if (s->backbuffer)
 					XFreePixmap(display, s->backbuffer);
@@ -537,29 +570,34 @@ int main(void)
 				text_out(s, &p);
 				break;
 			case PG_PRESENT:
-				if (!s->backbuffer ||
-				    s->back_width != s->width ||
-				    s->back_height != s->height) {
-					if (s->backbuffer)
-						XFreePixmap(display,
-							    s->backbuffer);
-					s->backbuffer = XCreatePixmap(
-						display, s->window, s->width,
-						s->height,
-						DefaultDepth(display,
-							     DefaultScreen(
-								     display)));
-					s->back_width = s->width;
-					s->back_height = s->height;
+				native_menu_bar(s);
+				present_surface(s);
+				break;
+			case PG_MENU_BEGIN:
+				native_menu_clear(s);
+				s->root_menu = p.a;
+				s->menu_height = p.b == 24 ? 24 : 0;
+				break;
+			case PG_MENU_ITEM: {
+				struct native_menu_entry *item =
+					calloc(1, sizeof(*item));
+				if (!item) {
+					p.status = 8;
+					break;
 				}
-				/* Upload may span multiple X requests; only the final CopyArea
-                 * changes visible pixels, so partial frames are never shown. */
-				XPutImage(display, s->backbuffer, s->gc,
-					  s->image, 0, 0, 0, 0, s->width,
-					  s->height);
-				XCopyArea(display, s->backbuffer, s->window,
-					  s->gc, 0, 0, s->width, s->height, 0,
-					  0);
+				item->menu = p.d;
+				item->index = p.a;
+				item->command = p.b;
+				item->submenu = p.c;
+				item->flags = p.flags;
+				memcpy(item->text, p.text, PG_TEXT);
+				item->next = s->menu_items;
+				s->menu_items = item;
+				break;
+			}
+			case PG_MENU_END:
+				native_menu_bar(s);
+				present_surface(s);
 				break;
 			case PG_POSITION:
 				p.status = resize_surface(s, p.c, p.d);

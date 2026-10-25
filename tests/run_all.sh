@@ -27,6 +27,8 @@ printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
 for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme -lwintrust || exit 1
 done
+x86_64-w64-mingw32-windres tests/resources.rc -o "$work/resources.o" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/resources.exe tests/resources.c "$work/resources.o" -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -DPE_HIDDEN_ONLY -o tests/hidden_windows.exe tests/windows.c -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshell32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o "$work/hello.exe" tests/hello42.c -lkernel32 || exit 1
 failures=0
@@ -57,6 +59,7 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
+check_pe tests/resources.exe 0 'resources ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/resources.exe
 check_pe tests/controls.exe 0 'controls ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/controls.exe
 check_pe tests/hidden_windows.exe 0 'hidden windows ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/hidden_windows.exe
 check_pe tests/queues.exe 0 'queues ok' timeout 15s tests/queues.exe

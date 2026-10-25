@@ -51,6 +51,7 @@ struct pe_ui {
 	int fd, child;
 	struct pe_ui_message *head, *tail;
 	bool failed;
+	unsigned char keys[256];
 	HANDLE focus, active;
 };
 struct pe_property;
@@ -69,13 +70,17 @@ struct pe_window {
 	DWORD style, exstyle;
 	int x, y, width, height;
 	intptr_t userdata;
-	bool visible, invalid, destroying, dead, erase, realized;
+	bool visible, invalid, destroying, dead, erase, realized, menu_dirty;
 	uint16_t title[256];
 	unsigned char extra[4096];
 };
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
 static void pe_properties_clear(struct pe_window *);
+static int pe_window_menu_height(struct pe_window *);
+static bool pe_menu_sync(struct pe_window *);
+__attribute__((ms_abi)) HANDLE LoadMenuW(HANDLE, const uint16_t *);
+__attribute__((ms_abi)) BOOL DestroyMenu(HANDLE);
 static void pe_control_clear(struct pe_window *);
 static const uint16_t *pe_control_caption(struct pe_window *);
 static void pe_ui_deliver(struct pe_ui *);
@@ -301,6 +306,12 @@ __attribute__((ms_abi)) intptr_t DefWindowProcW(HANDLE hwnd, DWORD msg,
 		return 0;
 	}
 
+	if (msg == 0x83 && lp) {
+		struct pe_window *w = pe_window_lookup(hwnd, true);
+		if (w)
+			((struct pe_rect *)lp)->top += pe_window_menu_height(w);
+		return 0;
+	}
 	if (msg == 0x14) {
 		struct pe_window *w = pe_window_lookup(hwnd, true);
 		if (w && w->cls->data.background) {
@@ -355,6 +366,8 @@ static bool pe_window_realize(struct pe_window *w)
 	if (!pe_ui_rpc(w->ui, &p))
 		return false;
 	w->realized = true;
+	if (w->menu && !pe_menu_sync(w))
+		return false;
 	return true;
 }
 __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
@@ -425,6 +438,16 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		w->next = pe_windows;
 		pe_windows = w;
 	}
+	if (!w->menu && !(w->style & 0x40000000u) && w->cls->data.menu_name) {
+		w->menu = LoadMenuW(instance, w->cls->data.menu_name);
+		if (!w->menu) {
+			PE_STATE_GUARD;
+			w->dead = true;
+			w->cls->windows--;
+			pe_gui_drop(pe_gui_lookup(w->handle, PE_GUI_WINDOW));
+			return NULL;
+		}
+	}
 	struct pe_create cs = { parameter,	instance, menu, parent,
 				height,		width,	  y,	x,
 				(int32_t)style, title,	  cls,	ex };
@@ -443,6 +466,8 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		PE_STATE_GUARD;
 		w->dead = true;
 		w->cls->windows--;
+		if (w->menu && !(w->style & 0x40000000u))
+			DestroyMenu(w->menu);
 		pe_properties_clear(w);
 		struct pe_gui_object *o =
 			pe_gui_lookup(w->handle, PE_GUI_WINDOW);
@@ -508,6 +533,8 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	w->cls->windows--;
 	pe_properties_clear(w);
 	pe_control_clear(w);
+	if (w->menu && !(w->style & 0x40000000u))
+		DestroyMenu(w->menu);
 	pe_ui_cancel_window(w);
 	struct pe_gui_object *o = pe_gui_lookup(hwnd, PE_GUI_WINDOW);
 	if (o)
@@ -586,7 +613,7 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 			command == 3				       ? 2 :
 									 0,
 			(uint16_t)w->width |
-				((uint32_t)(uint16_t)w->height << 16));
+				((uint32_t)(uint16_t)(w->height - pe_window_menu_height(w)) << 16));
 	return previous;
 }
 __attribute__((ms_abi)) BOOL GetClientRect(HANDLE hwnd, struct pe_rect *r)
@@ -598,7 +625,8 @@ __attribute__((ms_abi)) BOOL GetClientRect(HANDLE hwnd, struct pe_rect *r)
 			SetLastError(87);
 		return 0;
 	}
-	*r = (struct pe_rect){ 0, 0, w->width, w->height };
+	*r = (struct pe_rect){ 0, 0, w->width,
+			       w->height - pe_window_menu_height(w) };
 	return 1;
 }
 __attribute__((ms_abi)) BOOL GetWindowRect(HANDLE hwnd, struct pe_rect *r)
@@ -752,6 +780,11 @@ __attribute__((ms_abi)) BOOL ValidateRect(HANDLE hwnd, const struct pe_rect *r)
 }
 static bool pe_ui_pump(struct pe_ui *u, int wait)
 {
+	for (struct pe_window *v = pe_windows; v; v = v->next)
+		if (v->ui == u && !v->dead && v->realized && v->menu_dirty)
+			if (!pe_menu_sync(v))
+				return false;
+
 	if (u->fd < 0) {
 		if (u->failed) {
 			SetLastError(31);
@@ -771,6 +804,10 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 		return true;
 	if (p.a >= 0x100 && p.a <= 0x20e && (w->style & 0x08000000u))
 		return true;
+	if ((p.a == 0x100 || p.a == 0x101) && p.b >= 0 && p.b < 256)
+		u->keys[p.b] = p.a == 0x100;
+	if (p.a >= 0x200 && p.a <= 0x20e)
+		p.d -= pe_window_menu_height(w);
 	if (p.a == 7)
 		u->focus = w->handle;
 	if (p.a == 8 && u->focus == w->handle)
@@ -788,6 +825,8 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 		w->invalid = true;
 		w->erase = true;
 	}
+	if (p.a == 5)
+		p.d -= pe_window_menu_height(w);
 	intptr_t lp = (p.a == 0x100 || p.a == 0x101) ?
 			      (uint32_t)p.c :
 			      (uint16_t)p.c | ((uint32_t)(uint16_t)p.d << 16);
@@ -959,6 +998,10 @@ static BOOL pe_draw(HANDLE dc, struct pg_packet *p)
 		SetLastError(50);
 		return 0;
 	}
+	int origin = pe_window_menu_height(w);
+	p->b += origin;
+	if (p->op == PG_FILL || p->op == PG_LINE)
+		p->d += origin;
 	p->id = (uintptr_t)w->handle;
 	return pe_ui_rpc(w->ui, p);
 }
@@ -982,7 +1025,9 @@ __attribute__((ms_abi)) HANDLE BeginPaint(HANDLE hwnd, struct pe_paint *paint)
 		PE_STATE_GUARD;
 		w->paint_dc = paint->dc;
 		w->invalid = false;
-		paint->rect = (struct pe_rect){ 0, 0, w->width, w->height };
+		paint->rect = (struct pe_rect){
+			0, 0, w->width, w->height - pe_window_menu_height(w)
+		};
 		erase = w->erase;
 		w->erase = false;
 	}
@@ -1106,6 +1151,7 @@ __attribute__((ms_abi)) BOOL TextOutW(HANDLE dc, int x, int y,
 		return 0;
 	p.c = f.height;
 	p.id = (uintptr_t)w->handle;
+	p.b += pe_window_menu_height(w);
 	return pe_ui_rpc(w->ui, &p);
 }
 __attribute__((ms_abi)) DWORD GetPixel(HANDLE dc, int x, int y)

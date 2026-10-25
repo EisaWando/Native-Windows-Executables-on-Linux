@@ -1333,11 +1333,13 @@ struct pe_logbrush { uint32_t style, color; uint64_t hatch; };
 struct pe_logpen { uint32_t style; int32_t x, y; uint32_t color; };
 struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bpp; void *bits; };
 struct pe_window;
+struct pe_menu;struct pe_accel_table;
 struct pe_gui_object {
     struct pe_window *window;
+    struct pe_menu *menu;struct pe_accel_table *accelerator;
     uint32_t type, generation, selected, shared, slot;
     HANDLE owner;
-    struct { uintptr_t module, resource; uint32_t flags; int32_t width, height; uint16_t name[64]; } image;
+    struct { uintptr_t module, resource,data;uint32_t bytes; uint32_t flags; int32_t width, height; uint16_t name[64]; } image;
     union {
         struct pe_logbrush brush;
         struct pe_logpen pen;
@@ -1729,7 +1731,8 @@ __attribute__((ms_abi)) BOOL UnregisterClassW(const uint16_t *name, HANDLE insta
     if (v->windows) { SetLastError(1412); return 0; }
     pe_heap_free(v->extra); memset(v, 0, sizeof(*v)); return 1;
 }
-__attribute__((ms_abi)) HANDLE LoadImageW(HANDLE instance, const uint16_t *name, unsigned type, int width, int height, unsigned flags)
+__attribute__((ms_abi)) HANDLE LoadImageW(HANDLE,const uint16_t *,unsigned,int,int,unsigned);
+__attribute__((ms_abi)) HANDLE pe_headless_LoadImageW(HANDLE instance, const uint16_t *name, unsigned type, int width, int height, unsigned flags)
 { PE_STATE_GUARD;
     if (!name || type > 2 || width < 0 || width > INT32_MAX/4 || height < 0) { SetLastError(87); return NULL; }
     if (flags & 0x10) { SetLastError(50); return NULL; } /* LR_LOADFROMFILE needs actual file/resource decoding */
@@ -3428,12 +3431,14 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
     SetLastError(saved);return r;
 }
 
+#include "bridge/resources.inc"
 #include "gui/bridge.inc"
 #include "gui/window_state.inc"
 #include "gui/properties.inc"
 #include "gui/subclass.inc"
 #include "gui/send.inc"
 #include "gui/controls.inc"
+#include "gui/menus.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3443,6 +3448,47 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RemoveMenu")) return RemoveMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "DeleteMenu")) return DeleteMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "InsertMenuW")) return InsertMenuW;
+    if (!by_ordinal && ascii_equal_ci(function, "ModifyMenuW")) return ModifyMenuW;
+    if (!by_ordinal && ascii_equal_ci(function, "AppendMenuA")) return AppendMenuA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenuState")) return GetMenuState;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenuStringW")) return GetMenuStringW;
+    if (!by_ordinal && ascii_equal_ci(function, "CheckMenuRadioItem")) return CheckMenuRadioItem;
+    if (!by_ordinal && ascii_equal_ci(function, "SetMenuItemBitmaps")) return SetMenuItemBitmaps;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateAcceleratorTableW")) return CreateAcceleratorTableW;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyAcceleratorTable")) return DestroyAcceleratorTable;
+    if (!by_ordinal && ascii_equal_ci(function, "FindResourceW")) return FindResourceW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindResourceA")) return FindResourceA;
+    if (!by_ordinal && ascii_equal_ci(function, "FindResourceExW")) return FindResourceExW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadResource")) return LoadResource;
+    if (!by_ordinal && ascii_equal_ci(function, "LockResource")) return LockResource;
+    if (!by_ordinal && ascii_equal_ci(function, "SizeofResource")) return SizeofResource;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadStringW")) return LoadStringW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadStringA")) return LoadStringA;
+    if (!by_ordinal && ascii_equal_ci(function, "EnumResourceNamesW")) return EnumResourceNamesW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadBitmapW")) return LoadBitmapW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadMenuW")) return LoadMenuW;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadAcceleratorsW")) return LoadAcceleratorsW;
+    if (!by_ordinal && ascii_equal_ci(function, "TranslateAcceleratorW")) return TranslateAcceleratorW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateMenu")) return CreateMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "CreatePopupMenu")) return CreatePopupMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyMenu")) return DestroyMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "SetMenu")) return SetMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenu")) return GetMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSubMenu")) return GetSubMenu;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenuItemCount")) return GetMenuItemCount;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenuItemID")) return GetMenuItemID;
+    if (!by_ordinal && ascii_equal_ci(function, "AppendMenuW")) return AppendMenuW;
+    if (!by_ordinal && ascii_equal_ci(function, "InsertMenuItemW")) return InsertMenuItemW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMenuItemInfoW")) return GetMenuItemInfoW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetMenuItemInfoW")) return SetMenuItemInfoW;
+    if (!by_ordinal && ascii_equal_ci(function, "CheckMenuItem")) return CheckMenuItem;
+    if (!by_ordinal && ascii_equal_ci(function, "EnableMenuItem")) return EnableMenuItem;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawMenuBar")) return DrawMenuBar;
+    if (!by_ordinal && ascii_equal_ci(function, "AdjustWindowRect")) return AdjustWindowRect;
+    if (!by_ordinal && ascii_equal_ci(function, "AdjustWindowRectEx")) return AdjustWindowRectEx;
     if (!by_ordinal && ascii_equal_ci(function,"InitCommonControlsEx")) return InitCommonControlsEx;
     if (!by_ordinal && ascii_equal_ci(function,"InitCommonControls")) return InitCommonControls;
 
