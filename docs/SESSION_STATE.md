@@ -7,7 +7,7 @@
   Bridge PT_LOAD338712/1048576.
 - Notepad++: exit127, 304 resolved /316 unimplemented;
   KERNEL32!GetDateFormatW ret=0x14004cb45. No visible request/crash/hang.
-- Uncommitted work: bridge/date_format.inc, tests/date_format.c, lookup/harness
+- Uncommitted work: none
   edits and this refresh. Suite /tmp/date-r5.log running outside sandbox.
 - Next three steps: English/UTC date/time formatting; full suite/green commit;
   actual control/dialog calls toward main-window show.
