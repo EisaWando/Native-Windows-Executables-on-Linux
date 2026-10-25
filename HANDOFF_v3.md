@@ -44,6 +44,20 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: first-window resume Round 4 — product/legacy formatting (2026-10-25)
+
+GetProductInfo matches Windows 10 Pro and maps a Vista target to Business.
+Original wsprintfW/A and wvsprintfW/A use GCC's Windows va_list builtins and
+support integer/string/character formatting, widths, precision, alternate hex,
+32/64-bit/short integers, cross A/W conversion and NULL strings. Output uses a
+conservative documented 1KiB buffer bound; no floating-point formatting.
+`bash tests/run_all.sh > /tmp/profile-format-r4.log 2>&1` (outside sandbox)
+exited0: all hard fixtures incl format.exe, 20/20 stress and diagnostics PASS;
+display SKIP (backend unchanged since prior visible suite). PT_LOAD338712/1048576.
+Notepad++ exit127: 304 resolved /316 unimplemented; KERNEL32!GetDateFormatW
+ret=0x14004cb45. No visible request/crash/hang. Next: English/UTC date/time format
+APIs. No kernel changes, sudo, reload or push.
+
 ### Latest: first-window resume Round 3 — real font measurements (2026-10-25)
 
 GetTextMetricsW/A and GetTextExtentPoint(32)W/A measure Fontconfig-substituted

@@ -3452,10 +3452,19 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/trust.inc"
 #include "bridge/init_once.inc"
 #include "bridge/com.inc"
+#include "bridge/product.inc"
+#include "bridge/format.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "wsprintfW")) return wsprintfW;
+    if (!by_ordinal && ascii_equal_ci(function, "wsprintfA")) return wsprintfA;
+    if (!by_ordinal && ascii_equal_ci(function, "wvsprintfW")) return wvsprintfW;
+    if (!by_ordinal && ascii_equal_ci(function, "wvsprintfA")) return wvsprintfA;
+
+    if (!by_ordinal && ascii_equal_ci(function, "GetProductInfo")) return GetProductInfo;
+
     if (!by_ordinal && ascii_equal_ci(function, "GetTextMetricsW")) return GetTextMetricsW;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextMetricsA")) return GetTextMetricsA;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPoint32W")) return GetTextExtentPoint32W;
