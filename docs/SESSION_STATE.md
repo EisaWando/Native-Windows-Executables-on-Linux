@@ -1,20 +1,25 @@
 # Resume state
 
-- Current implementation commit: 2fa5adb05 (dialog-item helpers); COM b6c84987e;
-  caret b9b9e2182; INIT_ONCE 0a7520391; resources/menus 273a7704e.
-- Last green suite: `bash tests/run_all.sh > /tmp/r7.log 2>&1`, exit 0,
+- Current implementation commit: 66b64edb0 (drop-target registration).
+  Earlier green commits: 2fa5adb05 dialog items, b6c84987e COM bookkeeping,
+  b9b9e2182 caret state, 0a7520391 INIT_ONCE, 273a7704e resources/menus.
+- Last green suite: `bash tests/run_all.sh > /tmp/r8.log 2>&1`, exit 0,
   2026-10-25. All hard fixtures, 20/20 stress, diagnostics PASS; display SKIP.
-  Bridge PT_LOAD 322328 / 1048576 bytes.
-- Notepad++: exit 127; 292 resolved / 328 unimplemented imports;
-  ole32!RegisterDragDrop ret=0x14022c356. No new crash/hang/visible window.
-- Uncommitted work: drop-target registration/lifetime shims and fixture,
-  bridge/harness edits and this refresh. Suite /tmp/r8.log exited 0; next stop SetWindowTheme (294/326).
+  Bridge PT_LOAD 326424 / 1048576 bytes (722152 free).
+- Notepad++: exit 127; 294 resolved / 326 unimplemented imports;
+  UxTheme!SetWindowTheme ret=0x1401c368e, HWND=0x5008036c.
+  No new crash/hang/visible window and no PE exit 126 this session.
+- Uncommitted work: this post-commit checkpoint refresh only.
 - Next three steps:
-  1. Implement/test drag-target registration lifetime (no transport yet).
-  2. Run the full suite; commit green work and refresh this file.
-  3. Report after sixth round; leave next actual stop for owner's continuation.
+  1. Implement/test theme data state starting with SetWindowTheme.
+  2. Follow actual control/dialog calls; RT_DIALOG templates and
+     CreateDialogParamW/DialogBoxParamW are not implemented or reached yet.
+  3. Verify native menu strip/popups on a display, run the full suite and commit
+     green work; refresh this file after committing.
 
+Stopped at the requested six-round limit. Wait for owner's continuation.
 Bridge/GUI only; no sudo, kernel edits/reload or push. Stop immediately on any PE
-exit 126; stop for owner visual check at first visible Notepad++ window, any new
-crash/hang, or after ~6 rounds (5 completed this session). Native menus still
-need display verification; caret state has no drawing; dialogs/unwinding absent.
+exit 126; stop for visual check at the first visible Notepad++ window or any new
+crash/hang. Native menu rendering still needs display verification. Caret state
+has no pixel/blink rendering; drop registration has no drag transport/delivery;
+COM has no servers/marshaling. Dialog construction and unwinding remain absent.
