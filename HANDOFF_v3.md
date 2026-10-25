@@ -44,6 +44,21 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: first-window resume Round 1 — theme associations (2026-10-25)
+
+SetWindowTheme copies/removes app/class associations for each HWND and sends
+WM_THEMECHANGED outside the bridge lock. Destruction frees retained strings.
+OpenThemeData/Ex/ForDpi and GetWindowTheme return no theme handle, consistent
+with the existing classic/no-theme-engine profile; CloseThemeData rejects
+nonexistent handles. No theme renderer has been fabricated. tests/theme.c
+checks notification, classic profile, clearing, invalid HWND and teardown.
+`bash tests/run_all.sh > /tmp/theme-r1.log 2>&1` exited 0: all hard fixtures,
+20/20 stress and diagnostics PASS; display SKIP. PT_LOAD 330520/1048576.
+Notepad++ exit 127: 297 resolved / 323 unimplemented imports, GDI32!SetTextAlign
+ret=0x1402ba534. No new crash/hang or visible main-window request. First pending
+checkpoint commit also concluded an already-resolved README-only incoming merge
+(3f2533947). No kernel changes, sudo, reload or push. Next: DC text/state APIs.
+
 ### Latest: continuation Round 8 — drop registration; session stop (2026-10-25)
 
 RegisterDragDrop/RevokeDragDrop now track per-window interface references,

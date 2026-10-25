@@ -75,6 +75,7 @@ struct pe_window {
 	int x, y, width, height;
 	intptr_t userdata;
 	bool visible, invalid, destroying, dead, erase, realized, menu_dirty;
+	uint16_t *theme_app, *theme_ids;
 	uint16_t title[256];
 	unsigned char extra[4096];
 };
@@ -473,7 +474,10 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		w->cls->windows--;
 		if (w->menu && !(w->style & 0x40000000u))
 			DestroyMenu(w->menu);
-		pe_properties_clear(w);
+		if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
+	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
+	w->theme_app = w->theme_ids = NULL;
+	pe_properties_clear(w);
 		struct pe_gui_object *o =
 			pe_gui_lookup(w->handle, PE_GUI_WINDOW);
 		if (o)
@@ -541,6 +545,9 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	w->dead = true;
 	w->visible = false;
 	w->cls->windows--;
+	if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
+	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
+	w->theme_app = w->theme_ids = NULL;
 	pe_properties_clear(w);
 	pe_control_clear(w);
 	if (w->menu && !(w->style & 0x40000000u))
