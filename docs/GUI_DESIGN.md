@@ -59,3 +59,11 @@ pixels and offsets application drawing/input so GetClientRect, WM_SIZE,
 WM_NCCALCSIZE and AdjustWindowRect agree. Mouse popups send WM_COMMAND.
 Keyboard menu navigation, owner draw and complete frame metrics remain pending.
 Resource fixtures passed headlessly; native menu rendering is not yet verified.
+
+Startup state support also includes per-thread carets (position, hide nesting,
+shape metadata; rendering pending), COM apartment/refcount bookkeeping, and
+child-control IDs/dialog-item messages and text. OLE drop-target registration
+stores interface references and releases them on revoke/window destruction.
+Application AddRef/Release callbacks run outside the global lock. This does not
+provide drag/drop transport, clipboard, COM servers or marshaling. Dialog item
+helpers operate on existing HWNDs; RT_DIALOG construction remains pending.

@@ -44,6 +44,29 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: continuation Round 8 — drop registration; session stop (2026-10-25)
+
+RegisterDragDrop/RevokeDragDrop now track per-window interface references,
+validate OLE initialization/window ownership/duplicate registration, balance
+AddRef/Release and clean up on destruction. All application interface callbacks
+run outside the runtime lock. This is headless registration/lifetime only: no
+DoDragDrop, XDND transport or drop-event delivery. tests/drop_targets.c checks
+errors, refcounts, revoke/destruction, plus a worker allocating memory inside
+AddRef to catch holding the global lock across callbacks.
+
+`bash tests/run_all.sh > /tmp/r8.log 2>&1` exited 0. All hard fixtures (including
+resources, INIT_ONCE, caret, COM, dialog items and drop targets), 20/20 stress
+runs and both diagnostics PASS. Native display tests explicitly SKIP. No PE exit
+126 or new target crash/hang. text=249664, data=4, bss=68344; PT_LOAD extent
+326424 / 1048576 bytes (722152 free). Notepad++ exit 127; 294 resolved /
+326 unimplemented imports; UxTheme!SetWindowTheme ret=0x1401c368e, HWND0x5008036c.
+No visible Notepad++ window yet. Stopped after six green rounds this session
+(resources through drop-target registration). Next: theme state APIs, then
+actual control/dialog stops and native menu display verification. RT_DIALOG and
+CreateDialogParam/DialogBoxParam are still absent/not reached; no unwinding.
+README and GUI_DESIGN updated. docs/SESSION_STATE.md is the short resume file;
+refresh it after each green commit. No kernel changes, sudo, reload or push.
+
 ### Latest: continuation Round 7 — dialog-item helpers (2026-10-25)
 
 Child IDs/lookup, SendDlgItemMessageW, A/W dialog-item text, signed/unsigned

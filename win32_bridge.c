@@ -3441,6 +3441,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/menus.inc"
 #include "gui/caret.inc"
 #include "gui/dialog_items.inc"
+#include "gui/drop_targets.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3452,6 +3453,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterDragDrop")) return RegisterDragDrop;
+    if (!by_ordinal && ascii_equal_ci(function, "RevokeDragDrop")) return RevokeDragDrop;
+
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgCtrlID")) return GetDlgCtrlID;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgItem")) return GetDlgItem;
     if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageW")) return SendDlgItemMessageW;

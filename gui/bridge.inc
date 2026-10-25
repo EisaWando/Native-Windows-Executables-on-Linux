@@ -63,6 +63,7 @@ struct pe_control;
 struct pe_window {
 	struct pe_property *properties;
 	struct pe_control *control;
+	void *drop_target;
 	struct pe_window *next;
 	struct pe_ui *ui;
 	struct pe_gui_class *cls;
@@ -85,6 +86,7 @@ static bool pe_menu_sync(struct pe_window *);
 __attribute__((ms_abi)) HANDLE LoadMenuW(HANDLE, const uint16_t *);
 __attribute__((ms_abi)) BOOL DestroyMenu(HANDLE);
 static void pe_control_clear(struct pe_window *);
+static void pe_drop_window_destroy(struct pe_window *);
 static const uint16_t *pe_control_caption(struct pe_window *);
 static void pe_ui_deliver(struct pe_ui *);
 static void pe_ui_cancel(struct pe_ui *);
@@ -516,6 +518,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 		    (child->style & 0x40000000u))
 			DestroyWindow(child->handle);
 	w->proc(hwnd, 0x82, 0, 0);
+	pe_drop_window_destroy(w);
 	if (w->paint_dc) {
 		ReleaseDC(hwnd, w->paint_dc);
 		w->paint_dc = NULL;

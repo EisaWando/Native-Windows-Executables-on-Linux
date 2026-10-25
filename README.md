@@ -57,7 +57,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - **Target:** Windows x64 (PE32+) only; executables first, then DLLs.
 - **Calling convention:** Windows x64 (RCX, RDX, R8, R9, 32-byte shadow space, RSP 16-byte aligned *before* a call, callee-saved XMM6-XMM15) versus Linux System V. Every function handed to a PE is `__attribute__((ms_abi))`. (An early bug: calling the PE entry with RSP off by 8 made GCC's `movaps` prologues fault.)
 - **TEB via GS:** Windows x64 code reads the TEB through `gs:[0x30]`, the PEB through `gs:[0x60]`, TLS through `gs:[0x58]` and `gs:[0x1480]`, and the last error at `gs:[0x68]`.
-- **Address map:** ImageBase `0x140000000`; bridge `0x70000000` (fixed 1 MiB window, about 30% used); fake module handles `0x6ff00000+`; TEB/PEB near `0x7ff00000`; main stack below `0x7ffff7000000`.
+- **Address map:** ImageBase `0x140000000`; bridge `0x70000000` (fixed 1 MiB window, about 31% used); fake module handles `0x6ff00000+`; TEB/PEB near `0x7ff00000`; main stack below `0x7ffff7000000`.
 - **Imports:** resolved by name and by ordinal. A function without a real implementation gets a stub that, *when called*, prints `CALLED UNIMPLEMENTED: dll!function`, its caller, argument registers (with UTF-16 string previews) and a stack backtrace, then exits with status 127. That turns every missing API into a precise to-do item.
 - **`GetProcAddress`** returns NULL for anything not really implemented (never a stub), because the C runtime probes for optional APIs.
 - **Threads:** real threads via `clone`; each has its own stack, TEB, TLS/FLS storage and signal stack; wait objects (events, mutexes, semaphores, threads) are built on futexes.
@@ -92,11 +92,13 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] GDI/USER object tables, window class registration and system metrics
 - [x] First visible Unicode Win32 windows: message loops, software fills/lines/pixels, FreeType text, X11/XWayland presentation, resize and basic keyboard/mouse input
 - [x] C++ exception metadata decoder (diagnostic) and `RtlPcToFileHeader`
-- [x] Process-local registry tree with A/W APIs and a seeded Windows 10 profile; Notepad++ reaches `bcrypt!BCryptOpenAlgorithmProvider` for SHA256. It does not yet display its main window.
+- [x] Process-local registry tree with A/W APIs and a seeded Windows 10 profile
+- [x] SHA-256/HMAC, security identity queries and explicit unavailable trust-provider results
+- [x] Concurrent one-time initialization, per-thread caret state, COM apartment/task-memory bookkeeping and dialog-item helpers
 
 ### In progress / next
 - [ ] Registry persistence, complete Unicode name folding and security descriptors
-- [ ] Full GUI compatibility: child windows/controls, menus/dialogs, cross-thread SendMessage, complete GDI, complex text shaping and native Wayland
+- [ ] Full GUI compatibility: complete child controls, menus/dialogs, complete message semantics and GDI, complex text shaping and native Wayland
 - [ ] x64 structured/C++ exception handling: `.pdata` unwind (`RtlLookupFunctionEntry`, `RtlVirtualUnwind`, `RtlUnwindEx`, `RaiseException`)
 - [ ] Local time zones, APCs, `TerminateThread`, cross-process named objects, TLS for loaded DLLs, loading real PE DLLs
 - [ ] Case-insensitive path handling for `CreateFileW` and friends
@@ -117,7 +119,8 @@ See [the design](docs/GUI_DESIGN.md).
 The first milestone supports custom Unicode top-level windows. The demo draws a
 banner and text, repaints on resize, and closes with Escape or the window-manager
 close button. This is not yet a general Windows desktop/control implementation;
-Notepad++ still stops at its unimplemented SHA256 provider call.
+Notepad++ reaches its hidden editor/control initialization. See
+[the session checkpoint](docs/SESSION_STATE.md) for the latest tested API stop.
 
 ---
 
