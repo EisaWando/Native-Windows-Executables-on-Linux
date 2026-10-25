@@ -3446,10 +3446,22 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/security.inc"
 #include "bridge/trust.inc"
 #include "bridge/init_once.inc"
+#include "bridge/com.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "CoInitializeEx")) return CoInitializeEx;
+    if (!by_ordinal && ascii_equal_ci(function, "CoInitialize")) return CoInitialize;
+    if (!by_ordinal && ascii_equal_ci(function, "CoUninitialize")) return CoUninitialize;
+    if (!by_ordinal && ascii_equal_ci(function, "OleInitialize")) return OleInitialize;
+    if (!by_ordinal && ascii_equal_ci(function, "OleUninitialize")) return OleUninitialize;
+    if (!by_ordinal && ascii_equal_ci(function, "CoTaskMemAlloc")) return CoTaskMemAlloc;
+    if (!by_ordinal && ascii_equal_ci(function, "CoTaskMemFree")) return CoTaskMemFree;
+    if (!by_ordinal && ascii_equal_ci(function, "CoTaskMemRealloc")) return CoTaskMemRealloc;
+    if (!by_ordinal && ascii_equal_ci(function, "CoGetClassObject")) return CoGetClassObject;
+    if (!by_ordinal && ascii_equal_ci(function, "CoCreateInstance")) return CoCreateInstance;
+
     if (!by_ordinal && ascii_equal_ci(function, "GetCaretBlinkTime")) return GetCaretBlinkTime;
     if (!by_ordinal && ascii_equal_ci(function, "SetCaretBlinkTime")) return SetCaretBlinkTime;
     if (!by_ordinal && ascii_equal_ci(function, "CreateCaret")) return CreateCaret;

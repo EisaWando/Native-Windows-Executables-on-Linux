@@ -55,6 +55,7 @@ struct pe_ui {
 	HANDLE focus, active;
 	HANDLE caret, caret_bitmap;
 	int caret_x, caret_y, caret_width, caret_height, caret_hidden;
+	unsigned com_refs, com_mode, ole_refs;
 };
 struct pe_property;
 struct pe_subclass;

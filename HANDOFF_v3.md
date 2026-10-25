@@ -44,6 +44,20 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: continuation Round 6 — COM bookkeeping (2026-10-25)
+
+Added per-thread CoInitialize(Ex)/CoUninitialize and OleInitialize/Uninitialize
+apartment/refcount state, task-memory allocation/reallocation/free, and explicit
+unregistered-class failure for CoCreateInstance/CoGetClassObject (NULL outputs).
+No COM servers, RPC/marshaling, clipboard, embedding or drag/drop implementation.
+Tests/com.c checks mode conflicts, nested init/uninit, worker-thread isolation,
+uninitialized/unregistered activation errors and allocation preservation.
+`bash tests/run_all.sh > /tmp/r6.log 2>&1` exited 0: all hard fixtures, 20/20
+stress and diagnostics PASS; display SKIP. Notepad++ exit 127, 282 resolved /
+338 unimplemented imports; USER32!GetDlgCtrlID ret=0x14022c328. No new target
+crash/hang or visible window. Next: child/control IDs and dialog-item helpers.
+No kernel changes, sudo, reload or push.
+
 ### Latest: continuation Round 5 — caret state (2026-10-25)
 
 Added per-GUI-thread caret owner, shape/bitmap metadata, hide nesting and position,
