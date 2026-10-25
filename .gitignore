@@ -203,3 +203,5 @@ npp.8.9.8.portable.x64/stylers.xml
 npp.8.9.8.portable.x64/shortcuts.xml
 /pe_gui_host
 /gui/host_path.h
+
+npp.8.9.8.portable.x64/contextMenu.xml

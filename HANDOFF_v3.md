@@ -44,6 +44,20 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: resume Round 0 — trust committed (2026-10-25)
+
+Finished bridge/trust.inc and tests/trust.c. WinVerifyTrust reports the explicit
+TRUST_E_PROVIDER_UNKNOWN failure for generic verification (there is no installed
+Authenticode provider); it never reports a signature trusted. Empty state close
+succeeds, malformed inputs and unknown actions fail. contextMenu.xml is ignored.
+After the owner loaded binfmt_pe, `bash tests/run_all.sh > /tmp/npp-r0.log 2>&1`
+exited 0: trust and all hard fixtures passed, 20/20 thread stress passed, crash /
+exception diagnostics passed; visible display tests explicitly skipped. No PE
+exit 126. Notepad++ exits 127 at RaiseException, runtime_error from
+Notepad_plus_Window::init: CreateWindowEx returned NULL (the known zero-size /
+WS_EX_ACCEPTFILES restriction). Imports and exact stop are in /tmp/err.txt.
+Next: owner-specified hidden-window semantics. No kernel changes/reload/push.
+
 ### Latest: Notepad++ continuation, round 4 (2026-10-24)
 
 bridge/security.inc implements SID allocation/free/validation/length/copy/equality,

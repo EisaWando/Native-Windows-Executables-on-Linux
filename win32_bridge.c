@@ -3431,10 +3431,12 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
 #include "bridge/security.inc"
+#include "bridge/trust.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "WinVerifyTrust")) return WinVerifyTrust;
     if (!by_ordinal && ascii_equal_ci(function, "AllocateAndInitializeSid")) return AllocateAndInitializeSid;
     if (!by_ordinal && ascii_equal_ci(function, "FreeSid")) return FreeSid;
     if (!by_ordinal && ascii_equal_ci(function, "IsValidSid")) return IsValidSid;
