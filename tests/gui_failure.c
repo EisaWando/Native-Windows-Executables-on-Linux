@@ -7,8 +7,8 @@ void mainCRTStartup(void)
 	cls.lpszClassName = L"BridgeDisplayFailure";
 	int ok = RegisterClassW(&cls) != 0;
 	HWND hwnd = CreateWindowExW(0, cls.lpszClassName, L"Must not appear",
-				    WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, 0, 0,
-				    cls.hInstance, 0);
+				    WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, 100,
+				    100, 0, 0, cls.hInstance, 0);
 	ok &= !hwnd && GetLastError() == ERROR_MOD_NOT_FOUND;
 	ok &= UnregisterClassW(cls.lpszClassName, cls.hInstance);
 	DWORD written;

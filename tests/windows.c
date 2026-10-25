@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <commctrl.h>
 static LONG failures;
 static int creates, destroys, ncdestroys, paints;
 static HBRUSH blue;
@@ -9,6 +10,90 @@ static HANDLE ready;
 		if (!(x))                                \
 			InterlockedIncrement(&failures); \
 	} while (0)
+static LRESULT CALLBACK test_subclass(HWND h, UINT msg, WPARAM wp, LPARAM lp,
+				      UINT_PTR id, DWORD_PTR data)
+{
+	if (msg == WM_APP + 30)
+		return id + data;
+	if (msg == WM_APP + 31) {
+		RemoveWindowSubclass(h, test_subclass, id);
+		return DefSubclassProc(h, msg, wp, lp);
+	}
+	return DefSubclassProc(h, msg, wp, lp);
+}
+static void test_hidden_windows(void)
+{
+	HINSTANCE instance = GetModuleHandleW(0);
+	static WNDCLASSEXW c;
+	c.cbSize = sizeof(c);
+	c.lpfnWndProc = DefWindowProcW;
+	c.hInstance = instance;
+	c.lpszClassName = L"BridgeHiddenState";
+	c.cbWndExtra = 8;
+	CHECK(RegisterClassExW(&c));
+	DWORD ex = WS_EX_ACCEPTFILES | WS_EX_TOOLWINDOW | WS_EX_APPWINDOW |
+		   WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_CLIENTEDGE;
+	HWND w = CreateWindowExW(ex, c.lpszClassName, L"hidden",
+				 WS_OVERLAPPEDWINDOW | WS_DISABLED, 0, 0, 0, 0,
+				 0, 0, instance, 0);
+	CHECK(w && IsWindow(w) && !IsWindowVisible(w));
+	CHECK((DWORD)GetWindowLongPtrW(w, GWL_EXSTYLE) == ex);
+	RECT r;
+	CHECK(GetClientRect(w, &r) && r.right == 0 && r.bottom == 0);
+	CHECK(SetWindowTextW(w, L"hidden title"));
+	WCHAR text[32];
+	CHECK(GetWindowTextW(w, text, 32) == 12);
+	CHECK(SetPropW(w, L"UseImmersiveDarkModeColors", 0));
+	CHECK(SetPropA(w, "example", (HANDLE)123) &&
+	      GetPropW(w, L"EXAMPLE") == (HANDLE)123);
+	CHECK(RemovePropA(w, "example") == (HANDLE)123 &&
+	      !GetPropW(w, L"example"));
+	CHECK(SetPropW(w, (LPCWSTR)42, (HANDLE)456) &&
+	      GetPropW(w, (LPCWSTR)42) == (HANDLE)456);
+	DWORD_PTR data;
+	CHECK(SetWindowSubclass(w, test_subclass, 42, 100) &&
+	      GetWindowSubclass(w, test_subclass, 42, &data) && data == 100);
+	CHECK(SendMessageW(w, WM_APP + 30, 0, 0) == 142);
+	CHECK(SetWindowSubclass(w, test_subclass, 42, 200) &&
+	      SendMessageW(w, WM_APP + 30, 0, 0) == 242);
+	CHECK(SetWindowSubclass(w, test_subclass, 43, 10) &&
+	      SendMessageW(w, WM_APP + 30, 0, 0) == 53);
+	CHECK(RemoveWindowSubclass(w, test_subclass, 43) &&
+	      SendMessageW(w, WM_APP + 30, 0, 0) == 242);
+	CHECK(SendMessageW(w, WM_APP + 31, 0, 0) == 0 &&
+	      !GetWindowSubclass(w, test_subclass, 42, &data));
+	CHECK(UpdateWindow(w));
+	CHECK(EnableWindow(w, TRUE) && IsWindowEnabled(w));
+	CHECK(SetFocus(w) == 0 && GetFocus() == w);
+	CHECK(SetActiveWindow(w) == 0 && GetActiveWindow() == w);
+	CHECK(!EnableWindow(w, FALSE) && !IsWindowEnabled(w) &&
+	      GetFocus() == 0);
+	EnableWindow(w, TRUE);
+	DragAcceptFiles(w, FALSE);
+	CHECK(!(GetWindowLongPtrW(w, GWL_EXSTYLE) & WS_EX_ACCEPTFILES));
+	DragAcceptFiles(w, TRUE);
+	CHECK(SetWindowPos(w, 0, 20, 30, 120, 80,
+			   SWP_NOZORDER | SWP_NOACTIVATE));
+	CHECK(GetWindowRect(w, &r) && r.left == 20 && r.top == 30 &&
+	      r.right == 140 && r.bottom == 110);
+	CHECK(GetClientRect(w, &r) && r.right == 120 && r.bottom == 80);
+	CHECK(MoveWindow(w, 0, 0, -5, -7, FALSE));
+	CHECK(GetWindowRect(w, &r) && r.right == -5 && r.bottom == -7);
+	CHECK(!ShowWindow(w, SW_HIDE) && !IsWindowVisible(w));
+	CHECK(DestroyWindow(w));
+	CHECK(GetActiveWindow() == 0);
+	w = CreateWindowExW(0, c.lpszClassName, 0, 0, CW_USEDEFAULT,
+			    CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0,
+			    instance, 0);
+	CHECK(w && GetWindowRect(w, &r) && r.right > r.left &&
+	      r.bottom > r.top);
+	CHECK(DestroyWindow(w));
+	CHECK(!CreateWindowExW(0, L"NoSuchBridgeWindowClass", 0, 0, 0, 0, 0, 0,
+			       0, 0, instance, 0) &&
+	      GetLastError() == 1407);
+	CHECK(UnregisterClassW(c.lpszClassName, instance));
+}
+
 static LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 	if (msg == WM_NCCREATE) {
@@ -91,6 +176,15 @@ static DWORD WINAPI worker(void *parameter)
 }
 void mainCRTStartup(void)
 {
+	test_hidden_windows();
+#ifdef PE_HIDDEN_ONLY
+	DWORD output;
+	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),
+		  failures ? "hidden windows FAIL\n" : "hidden windows ok\n",
+		  failures ? 20 : 18, &output, 0);
+	ExitProcess(failures ? 1 : 0);
+#endif
+
 	HINSTANCE instance = GetModuleHandleW(0);
 	static WNDCLASSEXW cls;
 	cls.cbSize = sizeof(cls);

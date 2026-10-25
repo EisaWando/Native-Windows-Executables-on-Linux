@@ -561,6 +561,12 @@ int main(void)
 					  s->gc, 0, 0, s->width, s->height, 0,
 					  0);
 				break;
+			case PG_POSITION:
+				p.status = resize_surface(s, p.c, p.d);
+				if (!p.status)
+					XMoveResizeWindow(display, s->window,
+							  p.a, p.b, p.c, p.d);
+				break;
 			case PG_RESIZE:
 				p.status = resize_surface(s, p.c, p.d);
 				if (!p.status)

@@ -20,7 +20,8 @@ enum {
 	PG_POLL,
 	PG_EVENT,
 	PG_RESIZE,
-	PG_VERIFY
+	PG_VERIFY,
+	PG_POSITION
 };
 struct pg_packet {
 	uint32_t magic, op;

@@ -3427,6 +3427,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 }
 
 #include "gui/bridge.inc"
+#include "gui/window_state.inc"
+#include "gui/properties.inc"
+#include "gui/subclass.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3436,6 +3439,32 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowSubclass")) return SetWindowSubclass;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowSubclass")) return GetWindowSubclass;
+    if (!by_ordinal && ascii_equal_ci(function, "RemoveWindowSubclass")) return RemoveWindowSubclass;
+    if (!by_ordinal && ascii_equal_ci(function, "DefSubclassProc")) return DefSubclassProc;
+    if(by_ordinal && ascii_equal_ci(dll,"comctl32.dll")) {
+        switch(ordinal){case 410:return SetWindowSubclass;case 411:return GetWindowSubclass;case 412:return RemoveWindowSubclass;case 413:return DefSubclassProc;}
+    }
+
+    if (!by_ordinal && ascii_equal_ci(function, "SetPropW")) return SetPropW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetPropA")) return SetPropA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetPropW")) return GetPropW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetPropA")) return GetPropA;
+    if (!by_ordinal && ascii_equal_ci(function, "RemovePropW")) return RemovePropW;
+    if (!by_ordinal && ascii_equal_ci(function, "RemovePropA")) return RemovePropA;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowPos")) return SetWindowPos;
+    if (!by_ordinal && ascii_equal_ci(function, "MoveWindow")) return MoveWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "EnableWindow")) return EnableWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "IsWindowEnabled")) return IsWindowEnabled;
+    if (!by_ordinal && ascii_equal_ci(function, "SetFocus")) return SetFocus;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFocus")) return GetFocus;
+    if (!by_ordinal && ascii_equal_ci(function, "SetActiveWindow")) return SetActiveWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "GetActiveWindow")) return GetActiveWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "DragAcceptFiles")) return DragAcceptFiles;
+    if (!by_ordinal && ascii_equal_ci(function, "GetParent")) return GetParent;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowLongW")) return GetWindowLongW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowLongW")) return SetWindowLongW;
     if (!by_ordinal && ascii_equal_ci(function, "WinVerifyTrust")) return WinVerifyTrust;
     if (!by_ordinal && ascii_equal_ci(function, "AllocateAndInitializeSid")) return AllocateAndInitializeSid;
     if (!by_ordinal && ascii_equal_ci(function, "FreeSid")) return FreeSid;

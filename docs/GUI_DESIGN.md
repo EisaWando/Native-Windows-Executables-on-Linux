@@ -6,8 +6,9 @@ ReactOS implementation is used. The kernel remains a PE/bridge loader.
 Windows applications call USER32/GDI exports through the existing import bridge.
 The bridge owns HWND/HDC validation, window procedures (Windows x64 ABI),
 creation/destruction, thread ownership and message queues. Application callbacks
-run on the creating thread, outside the bridge state lock. Only custom Unicode
-classes are initially supported; unsupported window styles/features fail.
+run on the creating thread, outside the bridge state lock. Custom Unicode classes are supported. Every style bit is retained as logical
+state, although not every style has a native visual effect. Hidden HWNDs do not
+open X11 connections or allocate native windows; ShowWindow realizes a surface.
 
 A native `pe_gui_host` ELF helper owns the X11 connection, window-manager
 interaction and software RGB buffers. It is a separate executable, using Xlib,
@@ -37,10 +38,15 @@ WM_DELETE_WINDOW becomes WM_CLOSE. Only the owning thread dispatches callbacks.
 Build using `bash gui/build.sh`. The exact handoff bridge GCC flags remain.
 The script generates the helper's absolute path in gui/host_path.h, with a
 BINFMT_PE_GUI_HELPER environment override for relocation. No kernel reload is
-needed. Missing helper/display returns an error; no invisible successful window
-is fabricated. Existing headless GDI metadata APIs continue to work.
+needed. Missing helper/display returns an error when a native window is requested;
+hidden logical windows remain fully usable without a display. Existing headless GDI metadata APIs continue to work.
 
 The initial limits are documented in HANDOFF_v3.md after actual verification.
 Reference contracts: Microsoft Learn CreateWindowExW, WM_CREATE, BeginPaint,
 GetMessageW, DestroyWindow; X.Org libX11 manual. These are API documentation,
 not implementation sources.
+
+Hidden-window semantics and per-window properties/subclass chains were verified
+on 2026-10-25. Zero/negative sizes are retained in logical state; physical X11
+surfaces use at least one pixel and are bounded to 4096x4096. Stored styles such
+as LAYERED/ACCEPTFILES do not imply those effects/transport are implemented.

@@ -41,28 +41,37 @@ struct pe_ui_message {
 	struct pe_msg value;
 	struct pe_ui_message *next;
 };
+struct pe_subclass_frame;
 struct pe_ui {
+	struct pe_subclass_frame *subclass_frame;
 	struct pe_ui *next;
 	DWORD tid;
 	int fd, child;
 	struct pe_ui_message *head, *tail;
 	bool failed;
+	HANDLE focus, active;
 };
+struct pe_property;
+struct pe_subclass;
 struct pe_window {
+	struct pe_property *properties;
 	struct pe_window *next;
 	struct pe_ui *ui;
 	struct pe_gui_class *cls;
 	HANDLE handle, instance, parent, menu, paint_dc;
 	pe_wndproc proc;
+	pe_wndproc subclass_base;
+	struct pe_subclass *subclasses;
 	DWORD style, exstyle;
 	int x, y, width, height;
 	intptr_t userdata;
-	bool visible, invalid, destroying, dead, erase;
+	bool visible, invalid, destroying, dead, erase, realized;
 	uint16_t title[256];
 	unsigned char extra[4096];
 };
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
+static void pe_properties_clear(struct pe_window *);
 static struct pe_ui *pe_ui_current(void)
 {
 	PE_STATE_GUARD;
@@ -313,6 +322,31 @@ __attribute__((ms_abi)) intptr_t SendMessageW(HANDLE hwnd, DWORD msg,
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	return w ? w->proc(hwnd, msg, wp, lp) : 0;
 }
+__attribute__((ms_abi)) BOOL ShowWindow(HANDLE, int);
+static bool pe_window_realize(struct pe_window *w)
+{
+	if (w->realized)
+		return true;
+	if (w->parent == (HANDLE)(intptr_t)-3 || (w->style & 0x40000000u))
+		return true;
+	if (w->width > PG_MAX_DIM || w->height > PG_MAX_DIM) {
+		SetLastError(8);
+		return false;
+	}
+	struct pg_packet p = { .op = PG_CREATE,
+			       .id = (uintptr_t)w->handle,
+			       .a = w->x,
+			       .b = w->y,
+			       .c = w->width > 0 ? w->width : 1,
+			       .d = w->height > 0 ? w->height : 1 };
+	if (!WideCharToMultiByte(65001, 0, w->title, -1, p.text, PG_TEXT, NULL,
+				 NULL))
+		return false;
+	if (!pe_ui_rpc(w->ui, &p))
+		return false;
+	w->realized = true;
+	return true;
+}
 __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 					       const uint16_t *title,
 					       DWORD style, int x, int y,
@@ -320,11 +354,10 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 					       HANDLE parent, HANDLE menu,
 					       HANDLE instance, void *parameter)
 {
-	/* First milestone: custom top-level overlapped/popup windows only. */
-	if (parent || menu || (style & 0x40000000u) || ex) {
-		SetLastError(50);
+	/* Every style bit is retained. Backend support is separate from HWND state. */
+	if (parent && parent != (HANDLE)(intptr_t)-3 &&
+	    !pe_window_lookup(parent, true))
 		return NULL;
-	}
 	if (!cls) {
 		SetLastError(87);
 		return NULL;
@@ -337,13 +370,8 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		width = 640;
 	if (height == INT32_MIN)
 		height = 400;
-	if (width < 1 || height < 1 || width > PG_MAX_DIM ||
-	    height > PG_MAX_DIM) {
-		SetLastError(87);
-		return NULL;
-	}
 	struct pe_ui *u = pe_ui_current();
-	if (!u || !pe_ui_connect(u))
+	if (!u)
 		return NULL;
 	struct pe_window *w = pe_raw_map(sizeof(*w));
 	if (!w) {
@@ -354,6 +382,7 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		PE_STATE_GUARD;
 		struct pe_gui_class *c = pe_class_lookup(instance, cls);
 		if (!c) {
+			SetLastError(1407);
 			raw_syscall3(SYS_munmap, (long)w, sizeof(*w), 0);
 			return NULL;
 		}
@@ -367,6 +396,9 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		w->proc = (pe_wndproc)c->data.wndproc;
 		w->instance = instance;
 		w->style = style;
+		w->exstyle = ex;
+		w->parent = parent;
+		w->menu = menu;
 		w->x = x;
 		w->y = y;
 		w->width = width;
@@ -383,21 +415,6 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		w->next = pe_windows;
 		pe_windows = w;
 	}
-	struct pg_packet p = { .op = PG_CREATE,
-			       .id = (uintptr_t)w->handle,
-			       .a = x,
-			       .b = y,
-			       .c = width,
-			       .d = height };
-	WideCharToMultiByte(65001, 0, w->title, -1, p.text, PG_TEXT, NULL,
-			    NULL);
-	if (!pe_ui_rpc(u, &p)) {
-		PE_STATE_GUARD;
-		w->dead = true;
-		w->cls->windows--;
-		pe_gui_drop(pe_gui_lookup(w->handle, PE_GUI_WINDOW));
-		return NULL;
-	}
 	struct pe_create cs = { parameter,	instance, menu, parent,
 				height,		width,	  y,	x,
 				(int32_t)style, title,	  cls,	ex };
@@ -408,12 +425,15 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		/* WM_NCCREATE rejection has no WM_DESTROY, but does get NC teardown. */
 		w->destroying = true;
 		w->proc(w->handle, 0x82, 0, 0);
-		p = (struct pg_packet){ .op = PG_DESTROY,
-					.id = (uintptr_t)w->handle };
-		pe_ui_rpc(u, &p);
+		if (w->realized) {
+			struct pg_packet p = { .op = PG_DESTROY,
+					       .id = (uintptr_t)w->handle };
+			pe_ui_rpc(u, &p);
+		}
 		PE_STATE_GUARD;
 		w->dead = true;
 		w->cls->windows--;
+		pe_properties_clear(w);
 		struct pe_gui_object *o =
 			pe_gui_lookup(w->handle, PE_GUI_WINDOW);
 		if (o)
@@ -430,18 +450,13 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 	if (w->dead)
 		return NULL;
 	if (style & 0x10000000u) {
-		p = (struct pg_packet){ .op = PG_SHOW,
-					.id = (uintptr_t)w->handle,
-					.a = 1 };
-		if (!pe_ui_rpc(u, &p)) {
+		SetLastError(0);
+		ShowWindow(w->handle, 1);
+		if (!w->visible) {
+			DWORD error = GetLastError();
 			DestroyWindow(w->handle);
+			SetLastError(error);
 			return NULL;
-		}
-		{
-			PE_STATE_GUARD;
-			w->visible = true;
-			w->invalid = true;
-			w->erase = true;
 		}
 	}
 	return w->handle;
@@ -458,12 +473,21 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 		ReleaseDC(hwnd, w->paint_dc);
 		w->paint_dc = NULL;
 	}
-	struct pg_packet p = { .op = PG_DESTROY, .id = (uintptr_t)hwnd };
-	bool ok = pe_ui_rpc(w->ui, &p);
+	bool ok = true;
+	if (w->realized) {
+		struct pg_packet p = { .op = PG_DESTROY,
+				       .id = (uintptr_t)hwnd };
+		ok = pe_ui_rpc(w->ui, &p);
+	}
+	if (w->ui->focus == hwnd)
+		w->ui->focus = NULL;
+	if (w->ui->active == hwnd)
+		w->ui->active = NULL;
 	PE_STATE_GUARD;
 	w->dead = true;
 	w->visible = false;
 	w->cls->windows--;
+	pe_properties_clear(w);
 	struct pe_gui_object *o = pe_gui_lookup(hwnd, PE_GUI_WINDOW);
 	if (o)
 		pe_gui_drop(o);
@@ -500,25 +524,35 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	if (!w)
 		return 0;
-	if (command != 0 && command != 1 && command != 5 && command != 8) {
-		SetLastError(50);
+	if (command < 0 || command > 11) {
+		SetLastError(87);
 		return 0;
 	}
 	BOOL previous = w->visible;
-	struct pg_packet p = { .op = PG_SHOW,
-			       .id = (uintptr_t)hwnd,
-			       .a = command != 0 };
-	if (!pe_ui_rpc(w->ui, &p))
+	bool visible = command != 0;
+	if (visible && !pe_window_realize(w))
 		return 0;
+	if (w->realized) {
+		struct pg_packet p = { .op = PG_SHOW,
+				       .id = (uintptr_t)hwnd,
+				       .a = visible };
+		if (!pe_ui_rpc(w->ui, &p))
+			return 0;
+	}
 	{
 		PE_STATE_GUARD;
-		w->visible = command != 0;
-		w->invalid |= w->visible;
-		w->erase |= w->visible;
+		w->visible = visible;
+		w->style = visible ? w->style | 0x10000000u :
+				     w->style & ~0x10000000u;
+		w->invalid |= visible;
+		w->erase |= visible;
 	}
-	w->proc(hwnd, 0x18, command != 0, 0);
-	if (!w->dead && command)
-		w->proc(hwnd, 5, 0,
+	w->proc(hwnd, 0x18, visible, 0);
+	if (!w->dead && visible)
+		w->proc(hwnd, 5,
+			(command == 2 || command == 6 || command == 7) ? 1 :
+			command == 3				       ? 2 :
+									 0,
 			(uint16_t)w->width |
 				((uint32_t)(uint16_t)w->height << 16));
 	return previous;
@@ -541,7 +575,10 @@ __attribute__((ms_abi)) BOOL GetWindowRect(HANDLE hwnd, struct pe_rect *r)
 	struct pe_window *w = pe_window_lookup(hwnd, false);
 	if (!w || !r)
 		return 0;
-	*r = (struct pe_rect){ w->x, w->y, w->x + w->width, w->y + w->height };
+	*r = (struct pe_rect){
+		w->x, w->y, (int32_t)((uint32_t)w->x + (uint32_t)w->width),
+		(int32_t)((uint32_t)w->y + (uint32_t)w->height)
+	};
 	return 1;
 }
 __attribute__((ms_abi)) BOOL SetWindowTextW(HANDLE hwnd, const uint16_t *title)
@@ -554,7 +591,7 @@ __attribute__((ms_abi)) BOOL SetWindowTextW(HANDLE hwnd, const uint16_t *title)
 		return 0;
 	struct pg_packet p = { .op = PG_TITLE, .id = (uintptr_t)hwnd };
 	WideCharToMultiByte(65001, 0, copy, -1, p.text, PG_TEXT, NULL, NULL);
-	if (!pe_ui_rpc(w->ui, &p))
+	if (w->realized && !pe_ui_rpc(w->ui, &p))
 		return 0;
 	{
 		PE_STATE_GUARD;
@@ -598,6 +635,10 @@ __attribute__((ms_abi)) intptr_t GetWindowLongPtrW(HANDLE hwnd, int index)
 		return w->style;
 	case -20:
 		return w->exstyle;
+	case -12:
+		return (intptr_t)w->menu;
+	case -8:
+		return (intptr_t)w->parent;
 	}
 	if (index >= 0 && index <= w->cls->data.window_extra - 8) {
 		intptr_t v;
@@ -615,6 +656,22 @@ __attribute__((ms_abi)) intptr_t SetWindowLongPtrW(HANDLE hwnd, int index,
 	if (!w)
 		return 0;
 	intptr_t old;
+	if (index == -16) {
+		old = w->style;
+		w->style = (DWORD)value;
+		w->visible = !!(w->style & 0x10000000u);
+		return old;
+	}
+	if (index == -20) {
+		old = w->exstyle;
+		w->exstyle = (DWORD)value;
+		return old;
+	}
+	if (index == -12) {
+		old = (intptr_t)w->menu;
+		w->menu = (HANDLE)value;
+		return old;
+	}
 	if (index == -21) {
 		old = w->userdata;
 		w->userdata = value;
@@ -678,6 +735,12 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 	struct pe_window *w = pe_window_lookup((HANDLE)(uintptr_t)p.id, true);
 	if (!w)
 		return true;
+	if (p.a >= 0x100 && p.a <= 0x20e && (w->style & 0x08000000u))
+		return true;
+	if (p.a == 7)
+		u->focus = w->handle;
+	if (p.a == 8 && u->focus == w->handle)
+		u->focus = NULL;
 	if (p.a == 0xf) {
 		PE_STATE_GUARD;
 		w->invalid = true;
@@ -799,7 +862,7 @@ __attribute__((ms_abi)) BOOL UpdateWindow(HANDLE hwnd)
 		PE_STATE_GUARD;
 		invalid = w->invalid;
 	}
-	if (invalid)
+	if (invalid && w->visible)
 		w->proc(hwnd, 0xf, 0, 0);
 	return 1;
 }
@@ -820,7 +883,8 @@ __attribute__((ms_abi)) int ReleaseDC(HANDLE hwnd, HANDLE dc)
 			return 0;
 		struct pg_packet p = { .op = PG_PRESENT,
 				       .id = (uintptr_t)hwnd };
-		ok = pe_ui_rpc(w->ui, &p);
+		if (w->realized)
+			ok = pe_ui_rpc(w->ui, &p);
 	}
 	{
 		PE_STATE_GUARD;
@@ -855,6 +919,10 @@ static BOOL pe_draw(HANDLE dc, struct pg_packet *p)
 	struct pe_window *w = pe_drawing_window(dc, NULL);
 	if (!w)
 		return 0;
+	if (!w->realized) {
+		SetLastError(50);
+		return 0;
+	}
 	p->id = (uintptr_t)w->handle;
 	return pe_ui_rpc(w->ui, p);
 }

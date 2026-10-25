@@ -44,6 +44,46 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: resume Round 1 — lazy hidden HWNDs (2026-10-25)
+
+Completed the requested hidden/zero-size creation semantics: all WS/WS_EX bits
+are retained, zero/negative logical dimensions preserved, CW_USEDEFAULT gets
+80/80/640/400 defaults, unknown creation classes fail 1407. A hidden HWND is a
+real logical object without a helper connection or X11 surface. Showing a
+custom top-level window creates the native surface lazily; hidden title, rect,
+position, enable/focus/active state and file-drop opt-in are independent of X11.
+Native rendering still has a 4096x4096 limit and unsupported style effects are
+metadata only (e.g. layered composition / file-drop transport are not provided).
+Added SetWindowPos/MoveWindow, EnableWindow/IsWindowEnabled, focus/active getters
+and setters, DragAcceptFiles, GetParent and 32-bit window-long aliases. Existing
+Show/Update/Text/Rect/DC/destruction paths were adapted for unrealized windows.
+
+Following the next actual stops added string/atom-keyed window properties
+(A/W Set/Get/RemoveProp, including NULL values) and an original recursive
+subclass chain: named and COMCTL32 ordinal 410/411/412/413 exports. Callback nodes
+remain stable during removal/reentrant destruction; DefSubclassProc continues
+the current per-thread frame without holding the runtime lock across callbacks.
+No Wine/ReactOS implementation used; contracts from Microsoft Learn, installed
+MinGW headers and the Notepad++ import/call ABI.
+
+tests/windows.c now includes a hidden-state regression, also built as
+hidden_windows.exe for hard headless execution with a nonexistent helper path.
+It verifies styles, zero/negative/default geometry, properties, subclass
+install/update/order/self-removal, focus/enable/active state and destruction.
+The display-failure fixture now requests WS_VISIBLE, as hidden HWND creation
+must succeed even when no display/helper exists. Harness stops on exit 126
+for its manually-run PE diagnostic/Notepad++ commands as well.
+
+`PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/npp-r1-suite.log 2>&1` exited 0:
+hidden/windows and all hard fixtures pass; native X11 pixel/text/resize/input /
+close tests pass; 20/20 thread stress and diagnostics pass. `git diff --check`
+passes. Bridge text 193851, bss 68336; PT_LOAD budget in the suite log.
+Notepad++ now gets through hidden main-window creation and subclass/property
+setup; no runtime_error. Exit 127 at USER32!GetMenu ret=0x1400d9f65 while handling
+main-window creation. Its class references menu resource 1500; proper resource /
+menu support is needed instead of fabricating an empty menu. The window has not
+been shown, so no visual-check gate yet. No kernel changes/reload/push.
+
 ### Latest: resume Round 0 — trust committed (2026-10-25)
 
 Finished bridge/trust.inc and tests/trust.c. WinVerifyTrust reports the explicit
