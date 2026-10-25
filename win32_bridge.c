@@ -1659,10 +1659,11 @@ struct pe_wndclassex {
     const uint16_t *menu_name, *class_name; HANDLE small_icon;
 };
 struct pe_gui_class {
-    uint16_t atom; unsigned windows; uint16_t name[256], menu[256];
+    uint16_t atom; unsigned windows,builtin; uint16_t name[256], menu[256];
     struct pe_wndclassex data; void *extra;
 };
 static struct pe_gui_class *pe_gui_classes;
+static struct pe_gui_class *pe_builtin_class(HANDLE,const uint16_t *);
 _Static_assert(sizeof(struct pe_wndclassex) == 80, "WNDCLASSEXW layout");
 static bool pe_copy_name(uint16_t *out, unsigned cap, const uint16_t *src)
 {
@@ -1706,12 +1707,13 @@ __attribute__((ms_abi)) uint16_t RegisterClassExW(const struct pe_wndclassex *c)
 }
 static struct pe_gui_class *pe_class_lookup(HANDLE instance, const uint16_t *name)
 {
-    if (!pe_gui_classes) { SetLastError(1411); return NULL; }
-    for (unsigned i = 0; i < 64; i++) {
+
+    if(pe_gui_classes) for (unsigned i = 0; i < 64; i++) {
         struct pe_gui_class *v = &pe_gui_classes[i];
         if (v->atom && v->data.instance == instance &&
             ((uintptr_t)name < 65536 ? (uintptr_t)name == v->atom : pe_name_equal(v->name, name))) return v;
     }
+    struct pe_gui_class *builtin=pe_builtin_class(instance,name);if(builtin)return builtin;
     SetLastError(1411); return NULL;
 }
 __attribute__((ms_abi)) BOOL GetClassInfoExW(HANDLE instance, const uint16_t *name, struct pe_wndclassex *out)
@@ -3430,6 +3432,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/window_state.inc"
 #include "gui/properties.inc"
 #include "gui/subclass.inc"
+#include "gui/send.inc"
+#include "gui/controls.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3439,6 +3443,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function,"InitCommonControlsEx")) return InitCommonControlsEx;
+    if (!by_ordinal && ascii_equal_ci(function,"InitCommonControls")) return InitCommonControls;
+
     if (!by_ordinal && ascii_equal_ci(function, "SetWindowSubclass")) return SetWindowSubclass;
     if (!by_ordinal && ascii_equal_ci(function, "GetWindowSubclass")) return GetWindowSubclass;
     if (!by_ordinal && ascii_equal_ci(function, "RemoveWindowSubclass")) return RemoveWindowSubclass;

@@ -42,7 +42,9 @@ struct pe_ui_message {
 	struct pe_ui_message *next;
 };
 struct pe_subclass_frame;
+struct pe_ui_call;
 struct pe_ui {
+	struct pe_ui_call *calls, *active_calls, *outgoing;
 	struct pe_subclass_frame *subclass_frame;
 	struct pe_ui *next;
 	DWORD tid;
@@ -53,8 +55,10 @@ struct pe_ui {
 };
 struct pe_property;
 struct pe_subclass;
+struct pe_control;
 struct pe_window {
 	struct pe_property *properties;
+	struct pe_control *control;
 	struct pe_window *next;
 	struct pe_ui *ui;
 	struct pe_gui_class *cls;
@@ -72,6 +76,12 @@ struct pe_window {
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
 static void pe_properties_clear(struct pe_window *);
+static void pe_control_clear(struct pe_window *);
+static const uint16_t *pe_control_caption(struct pe_window *);
+static void pe_ui_deliver(struct pe_ui *);
+static void pe_ui_cancel(struct pe_ui *);
+static void pe_ui_cancel_window(struct pe_window *);
+static intptr_t pe_ui_send(HANDLE, DWORD, uintptr_t, intptr_t);
 static struct pe_ui *pe_ui_current(void)
 {
 	PE_STATE_GUARD;
@@ -319,15 +329,15 @@ __attribute__((ms_abi)) intptr_t CallWindowProcW(pe_wndproc proc, HANDLE hwnd,
 __attribute__((ms_abi)) intptr_t SendMessageW(HANDLE hwnd, DWORD msg,
 					      uintptr_t wp, intptr_t lp)
 {
-	struct pe_window *w = pe_window_lookup(hwnd, true);
-	return w ? w->proc(hwnd, msg, wp, lp) : 0;
+	return pe_ui_send(hwnd, msg, wp, lp);
 }
 __attribute__((ms_abi)) BOOL ShowWindow(HANDLE, int);
 static bool pe_window_realize(struct pe_window *w)
 {
 	if (w->realized)
 		return true;
-	if (w->parent == (HANDLE)(intptr_t)-3 || (w->style & 0x40000000u))
+	if (w->cls->builtin || w->parent == (HANDLE)(intptr_t)-3 ||
+	    (w->style & 0x40000000u))
 		return true;
 	if (w->width > PG_MAX_DIM || w->height > PG_MAX_DIM) {
 		SetLastError(8);
@@ -468,6 +478,15 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 		return 0;
 	w->destroying = true;
 	w->proc(hwnd, 2, 0, 0);
+	struct pe_window *first;
+	{
+		PE_STATE_GUARD;
+		first = pe_windows;
+	}
+	for (struct pe_window *child = first; child; child = child->next)
+		if (!child->dead && child->parent == hwnd &&
+		    (child->style & 0x40000000u))
+			DestroyWindow(child->handle);
 	w->proc(hwnd, 0x82, 0, 0);
 	if (w->paint_dc) {
 		ReleaseDC(hwnd, w->paint_dc);
@@ -488,6 +507,8 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	w->visible = false;
 	w->cls->windows--;
 	pe_properties_clear(w);
+	pe_control_clear(w);
+	pe_ui_cancel_window(w);
 	struct pe_gui_object *o = pe_gui_lookup(hwnd, PE_GUI_WINDOW);
 	if (o)
 		pe_gui_drop(o);
@@ -504,7 +525,18 @@ __attribute__((ms_abi)) BOOL IsWindowVisible(HANDLE hwnd)
 {
 	PE_STATE_GUARD;
 	struct pe_window *w = pe_window_lookup(hwnd, false);
-	return w && w->visible;
+	if (!w)
+		return 0;
+	for (unsigned depth = 0; depth < 128; depth++) {
+		if (!w->visible)
+			return 0;
+		if (!(w->style & 0x40000000u) || !w->parent)
+			return 1;
+		w = pe_window_lookup(w->parent, false);
+		if (!w)
+			return 0;
+	}
+	return 0;
 }
 __attribute__((ms_abi)) BOOL IsWindowUnicode(HANDLE hwnd)
 {
@@ -586,6 +618,8 @@ __attribute__((ms_abi)) BOOL SetWindowTextW(HANDLE hwnd, const uint16_t *title)
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	if (!w || !title)
 		return 0;
+	if (w->cls->builtin)
+		return SendMessageW(hwnd, 0xc, 0, (intptr_t)title) != 0;
 	uint16_t copy[256];
 	if (!pe_copy_name(copy, 256, title))
 		return 0;
@@ -605,10 +639,10 @@ __attribute__((ms_abi)) int GetWindowTextW(HANDLE hwnd, uint16_t *out, int cap)
 	struct pe_window *w = pe_window_lookup(hwnd, false);
 	if (!w || !out || cap < 1)
 		return 0;
-	int n = lstrlenW(w->title);
+	int n = lstrlenW(pe_control_caption(w));
 	if (n >= cap)
 		n = cap - 1;
-	memcpy(out, w->title, n * 2);
+	memcpy(out, pe_control_caption(w), n * 2);
 	out[n] = 0;
 	return n;
 }
@@ -616,7 +650,7 @@ __attribute__((ms_abi)) int GetWindowTextLengthW(HANDLE hwnd)
 {
 	PE_STATE_GUARD;
 	struct pe_window *w = pe_window_lookup(hwnd, false);
-	return w ? lstrlenW(w->title) : 0;
+	return w ? lstrlenW(pe_control_caption(w)) : 0;
 }
 __attribute__((ms_abi)) intptr_t GetWindowLongPtrW(HANDLE hwnd, int index)
 {
@@ -774,6 +808,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 		return -1;
 	bool polled = false;
 	for (;;) {
+		pe_ui_deliver(u);
 		{
 			PE_STATE_GUARD;
 			struct pe_ui_message **link = &u->head,
@@ -807,7 +842,8 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 				for (struct pe_window *w = pe_windows; w;
 				     w = w->next)
 					if (!w->dead && w->ui == u &&
-					    w->visible && w->invalid &&
+					    w->realized && w->visible &&
+					    w->invalid &&
 					    (!hwnd || w->handle == hwnd)) {
 						*out = (struct pe_msg){
 							.hwnd = w->handle,
@@ -1190,6 +1226,7 @@ static void pe_gui_thread_cleanup(void)
 	for (struct pe_window *w = first; w; w = w->next)
 		if (w->ui == u && !w->dead)
 			DestroyWindow(w->handle);
+	pe_ui_cancel(u);
 	pe_ui_disconnect(u);
 	PE_STATE_GUARD;
 	while (u->head) {

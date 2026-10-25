@@ -44,6 +44,40 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: resume Round 2 — headless controls and cross-thread sends (2026-10-25)
+
+Added real headless control objects/procedures for Button, Static, Edit, ListBox,
+ComboBox, ToolbarWindow32, ReBarWindow32, SysTabControl32, msctls_statusbar32,
+tooltips_class32, SysListView32 and msctls_updown32, plus InitCommonControls(Ex).
+They store text/font/image, check/selection/item data, toolbar button arrays,
+status parts, tab/list rows, tooltip count and up/down range/position. Common
+messages have stateful results; this is deliberately not complete control
+behavior (sorting, notifications, owner draw and all other messages remain
+incomplete). Child controls are logical objects, not separate X11 windows.
+Destroying a parent destroys its child HWNDs and releases control buffers.
+
+Cross-thread SendMessageW now queues a refcounted mmap call record, dispatches
+on the receiver's GUI thread, and returns its actual result. Waiting senders
+service reciprocal synchronous calls. Get/PeekMessage deliver pending sends
+outside locks; window destruction and thread exit cancel pending/active sends.
+Records survive nonlocal ExitThread and are freed only after both owners release
+them. PostMessageW already queues cross-thread messages. No PE callbacks execute
+with the global bridge lock held. Mixed/unsupported control messages may still
+fall through to the default procedure; full USER32 semantics are not claimed.
+
+New tests/controls.c, run headlessly with an invalid helper path, covers all 12
+classes, text/selection/list/button/tab/status/toolbar/updown state, parent
+teardown, reciprocal cross-thread sends on the correct TIDs, and a receiver
+calling ExitThread during a synchronous send. `bash tests/run_all.sh >
+/tmp/npp-r2-suite.log 2>&1` exited 0: all hard fixtures including controls and
+hidden/windows state pass, 20/20 thread stress and diagnostics pass. Visible
+tests explicitly skipped (the X11 backend is unchanged in this round).
+`git diff --check` passes. Bridge text 205192, bss 68344; PT_LOAD 281336/1048576.
+Notepad++: 231 resolved / 389 unimplemented, unchanged exit 127 at USER32!GetMenu
+ret=0x1400d9f65. Next is the owner-requested resource/menu layer; menu resource
+1500 must be instantiated before creation callbacks query it. No kernel changes,
+sudo, reload or push.
+
 ### Latest: resume Round 1 — lazy hidden HWNDs (2026-10-25)
 
 Completed the requested hidden/zero-size creation semantics: all WS/WS_EX bits
