@@ -3454,10 +3454,18 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/com.inc"
 #include "bridge/product.inc"
 #include "bridge/format.inc"
+#include "bridge/date_format.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetDateFormatW")) return GetDateFormatW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDateFormatA")) return GetDateFormatA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTimeFormatW")) return GetTimeFormatW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTimeFormatA")) return GetTimeFormatA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDateFormatEx")) return GetDateFormatEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTimeFormatEx")) return GetTimeFormatEx;
+
     if (!by_ordinal && ascii_equal_ci(function, "wsprintfW")) return wsprintfW;
     if (!by_ordinal && ascii_equal_ci(function, "wsprintfA")) return wsprintfA;
     if (!by_ordinal && ascii_equal_ci(function, "wvsprintfW")) return wvsprintfW;

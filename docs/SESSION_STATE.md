@@ -1,18 +1,18 @@
 # Resume state
 
-- Current implementation commit: 0893f916e (real FreeType metrics, lazy X11).
-- Last green run: `PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/fonts-r3-native.log 2>&1`,
-  exit0. All hard fixtures, real X11 display checks, 20/20 stress, diagnostics PASS.
-  Font fixture also passes with DISPLAY empty. Bridge PT_LOAD 334616/1048576.
-- Notepad++: exit127, 302 resolved /318 unimplemented imports;
-  KERNEL32!GetProductInfo ret=0x1401c3cec. No visible request/crash/hang.
-- Uncommitted work: product/profile and wsprintf/wvsprintf A/W shims, format
-  fixture, harness/lookup edits and this checkpoint. /tmp/profile-format-r4.log running.
-- Next three steps: version-profile API batch; full suite outside sandbox and
-  green commit; continue actual control/dialog stops toward main-window show.
+- Current implementation commit: 15adb07d5 (product profile/legacy formatting).
+- Last green run: `bash tests/run_all.sh > /tmp/profile-format-r4.log 2>&1`
+  outside sandbox, exit0. All hard fixtures, 20/20 stress, diagnostics PASS;
+  display SKIP. Last native GUI checks: /tmp/fonts-r3-native.log PASS.
+  Bridge PT_LOAD338712/1048576.
+- Notepad++: exit127, 304 resolved /316 unimplemented;
+  KERNEL32!GetDateFormatW ret=0x14004cb45. No visible request/crash/hang.
+- Uncommitted work: bridge/date_format.inc, tests/date_format.c, lookup/harness
+  edits and this refresh. Suite /tmp/date-r5.log running outside sandbox.
+- Next three steps: English/UTC date/time formatting; full suite/green commit;
+  actual control/dialog calls toward main-window show.
 
-Three of six rounds completed this session. Native helper startup is blocked in
-sandbox: font PE exits1 (last error126/31), passes outside. Run helper-dependent
-regressions outside sandbox; no sudo or module reload. Stop on PE exit126,
-new crash/hang, or visible Notepad++ show request; give desktop/screenshot
-commands at show request and wait. RT_DIALOG/unwinding remain pending.
+Four of six rounds completed. Run helper-dependent suites outside sandbox;
+no sudo/kernel edits/reload/push. Stop on PE exit126, new crash/hang or visible
+Notepad++ request. At show request give desktop/screenshot commands and wait.
+Dialogs/unwinding and native menu presentation verification remain pending.
