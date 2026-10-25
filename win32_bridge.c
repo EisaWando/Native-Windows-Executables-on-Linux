@@ -3444,10 +3444,18 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/directories.inc"
 #include "bridge/security.inc"
 #include "bridge/trust.inc"
+#include "bridge/init_once.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal) {
+        if (ascii_equal_ci(function, "InitOnceInitialize")) return InitOnceInitialize;
+        if (ascii_equal_ci(function, "InitOnceBeginInitialize")) return InitOnceBeginInitialize;
+        if (ascii_equal_ci(function, "InitOnceComplete")) return InitOnceComplete;
+        if (ascii_equal_ci(function, "InitOnceExecuteOnce")) return InitOnceExecuteOnce;
+    }
+
     if (!by_ordinal && ascii_equal_ci(function, "RemoveMenu")) return RemoveMenu;
     if (!by_ordinal && ascii_equal_ci(function, "DeleteMenu")) return DeleteMenu;
     if (!by_ordinal && ascii_equal_ci(function, "InsertMenuW")) return InsertMenuW;

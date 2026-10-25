@@ -1,6 +1,6 @@
 # binfmt_pe — Native Windows Executables on Linux, Without Wine
 
-> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader. Console programs run end to end, including multi-threaded ones. **Notepad++ 8.9.8 now gets through the C runtime's startup, starts its worker thread, reads files and directories, and reaches its first Windows-registry access. It does not show a window yet.** This README is honest about what works, what doesn't, and where help is needed.
+> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader. Console programs run end to end, including multi-threaded ones. **Notepad++ 8.9.8 reaches hidden main-window creation, subclass setup and menu resource loading. It does not show a window yet.** This README is honest about what works, what doesn't, and where help is needed.
 
 ---
 
@@ -57,7 +57,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - **Target:** Windows x64 (PE32+) only; executables first, then DLLs.
 - **Calling convention:** Windows x64 (RCX, RDX, R8, R9, 32-byte shadow space, RSP 16-byte aligned *before* a call, callee-saved XMM6-XMM15) versus Linux System V. Every function handed to a PE is `__attribute__((ms_abi))`. (An early bug: calling the PE entry with RSP off by 8 made GCC's `movaps` prologues fault.)
 - **TEB via GS:** Windows x64 code reads the TEB through `gs:[0x30]`, the PEB through `gs:[0x60]`, TLS through `gs:[0x58]` and `gs:[0x1480]`, and the last error at `gs:[0x68]`.
-- **Address map:** ImageBase `0x140000000`; bridge `0x70000000` (fixed 1 MiB window, about 19% used); fake module handles `0x6ff00000+`; TEB/PEB near `0x7ff00000`; main stack below `0x7ffff7000000`.
+- **Address map:** ImageBase `0x140000000`; bridge `0x70000000` (fixed 1 MiB window, about 30% used); fake module handles `0x6ff00000+`; TEB/PEB near `0x7ff00000`; main stack below `0x7ffff7000000`.
 - **Imports:** resolved by name and by ordinal. A function without a real implementation gets a stub that, *when called*, prints `CALLED UNIMPLEMENTED: dll!function`, its caller, argument registers (with UTF-16 string previews) and a stack backtrace, then exits with status 127. That turns every missing API into a precise to-do item.
 - **`GetProcAddress`** returns NULL for anything not really implemented (never a stub), because the C runtime probes for optional APIs.
 - **Threads:** real threads via `clone`; each has its own stack, TEB, TLS/FLS storage and signal stack; wait objects (events, mutexes, semaphores, threads) are built on futexes.
@@ -71,6 +71,13 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 ## Current status
 
 ### Verified by real runs (`bash tests/run_all.sh`)
+
+- [x] Hidden/zero-size windows, properties, subclass chains and cross-thread messages
+- [x] Headless system/common controls with tested state for selected messages
+- [x] Main-image PE resources, menu templates, strings and accelerator tables
+- [ ] Complete control behavior, resource image rasterization and dialogs
+- [ ] Native menu strip/popup display verification (presenter implemented)
+
 - [x] MZ/PE (PE32+) parsing with bounds checks; PE headers and all sections mapped at their virtual addresses
 - [x] Kernel loads the bridge by ELF `PT_LOAD` segments and hands off with a correct stack
 - [x] TEB/PEB/GS set up and self-tested; **TLS directory** processed (template, zero-fill, alignment, callbacks)
@@ -185,7 +192,7 @@ Please use a **virtual machine** for development.
 In spirit, an alternative architecture with the same goal: running Windows programs on Linux. The difference is where the loading happens (in the kernel via `binfmt`) and the intent to make a `.exe` behave like any other executable.
 
 **Does Notepad++ run?**
-Its startup code runs, including a worker thread and file scans, and it reaches the Windows registry. It does not show a window yet.
+Its startup code creates a hidden main window and loads its menu resource. It does not show a window yet.
 
 **Will it run games / Photoshop / my work software?**
 Not today, and possibly not for a long time. Console programs and a small custom-window GUI demo work; complex applications remain unsupported.

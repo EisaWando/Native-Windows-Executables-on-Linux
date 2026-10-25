@@ -44,6 +44,20 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: continuation Round 4 — INIT_ONCE (2026-10-25)
+
+Original atomic INIT_ONCE begin/complete/execute implementation with futex
+contention waits, failure retry, release/acquire context publication, synchronous
+and asynchronous states. No callback runs under the global lock. Contracts from
+Microsoft Learn synchapi InitOnceBeginInitialize / InitOnceComplete. New
+init_once.exe tests eight concurrent callers, a failed first callback then one
+successful publication, completed checks and async validation.
+`bash tests/run_all.sh > /tmp/r4.log 2>&1` exited 0: all hard fixtures, 20/20
+thread stress and diagnostics PASS; display SKIP. Notepad++ exit 127,
+269 resolved / 351 unimplemented, USER32!GetCaretBlinkTime ret=0x140226e1b.
+No new target crash/hang or visible window. Next: caret/data state APIs needed
+by the actual startup path; dialogs when requested. No kernel changes/push.
+
 ### Latest: resume Round 3 — resources and menus (2026-10-25)
 
 Main-image bounds-checked PE resource traversal implements FindResourceW/A,
