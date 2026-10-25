@@ -3440,6 +3440,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/controls.inc"
 #include "gui/menus.inc"
 #include "gui/caret.inc"
+#include "gui/dialog_items.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3451,6 +3452,20 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetDlgCtrlID")) return GetDlgCtrlID;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDlgItem")) return GetDlgItem;
+    if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageW")) return SendDlgItemMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetDlgItemTextW")) return SetDlgItemTextW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDlgItemTextW")) return GetDlgItemTextW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetDlgItemTextA")) return SetDlgItemTextA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDlgItemTextA")) return GetDlgItemTextA;
+    if (!by_ordinal && ascii_equal_ci(function, "SetDlgItemInt")) return SetDlgItemInt;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDlgItemInt")) return GetDlgItemInt;
+    if (!by_ordinal && ascii_equal_ci(function, "CheckDlgButton")) return CheckDlgButton;
+    if (!by_ordinal && ascii_equal_ci(function, "IsDlgButtonChecked")) return IsDlgButtonChecked;
+    if (!by_ordinal && ascii_equal_ci(function, "CheckRadioButton")) return CheckRadioButton;
+    if (!by_ordinal && ascii_equal_ci(function, "IsChild")) return IsChild;
+
     if (!by_ordinal && ascii_equal_ci(function, "CoInitializeEx")) return CoInitializeEx;
     if (!by_ordinal && ascii_equal_ci(function, "CoInitialize")) return CoInitialize;
     if (!by_ordinal && ascii_equal_ci(function, "CoUninitialize")) return CoUninitialize;

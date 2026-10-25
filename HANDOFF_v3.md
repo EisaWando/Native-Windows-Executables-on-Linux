@@ -44,6 +44,22 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: continuation Round 7 — dialog-item helpers (2026-10-25)
+
+Child IDs/lookup, SendDlgItemMessageW, A/W dialog-item text, signed/unsigned
+integer parsing/formatting with checked limits, checkbox/radio state and IsChild
+ancestry now operate on existing logical controls. Cross-thread item messages
+use the existing receiver-thread synchronous send path; callbacks run unlocked.
+Tests/dialog_items.c covers Unicode/UTF-8 truncation, signed/unsigned boundaries,
+missing IDs, nested ancestry, radio/check state and child teardown. RT_DIALOG
+parsing and CreateDialogParam/DialogBoxParam remain unimplemented/not reached.
+`bash tests/run_all.sh > /tmp/r7.log 2>&1` exited 0: all hard fixtures, 20/20
+stress and diagnostics PASS; display SKIP. Bridge PT_LOAD 322328 / 1048576.
+Notepad++ exit 127; 292 resolved / 328 unimplemented imports; ole32!RegisterDragDrop
+ret=0x14022c356. No new target crash/hang or visible window. Next: registration
+lifetime (transport still absent), then stop after sixth round this session.
+No kernel changes, sudo, reload or push.
+
 ### Latest: continuation Round 6 — COM bookkeeping (2026-10-25)
 
 Added per-thread CoInitialize(Ex)/CoUninitialize and OleInitialize/Uninitialize
