@@ -24,8 +24,17 @@ enum {
 	PG_POSITION,
 	PG_MENU_BEGIN,
 	PG_MENU_ITEM,
-	PG_MENU_END
+	PG_MENU_END,
+	PG_FONT_METRICS,
+	PG_MEASURE
 };
+struct pg_text_metrics {
+	int32_t height, ascent, descent, internal, external, average, maximum,
+		weight, overhang, aspect_x, aspect_y;
+	uint16_t first, last, fallback, space;
+	uint8_t italic, underline, strike, pitch, charset;
+};
+_Static_assert(sizeof(struct pg_text_metrics) == 60, "TEXTMETRICW layout");
 struct pg_packet {
 	uint32_t magic, op;
 	uint64_t id;

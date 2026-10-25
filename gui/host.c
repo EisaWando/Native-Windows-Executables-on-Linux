@@ -317,6 +317,10 @@ static void present_surface(struct surface *s)
 }
 static void event_packet(struct pg_packet *p)
 {
+	if (!display) {
+		if (p->a > 0) poll(NULL,0,p->a > 16 ? 16 : p->a);
+		p->op=PG_EVENT; p->id=0; p->a=0; return;
+	}
 	struct pollfd fd = { ConnectionNumber(display), POLLIN, 0 };
 	if (!XPending(display) && p->a > 0)
 		poll(&fd, 1, p->a > 16 ? 16 : p->a);
@@ -410,22 +414,15 @@ static void event_packet(struct pg_packet *p)
 	p->id = 0;
 	p->a = 0;
 }
+#include "host_metrics.inc"
 int main(void)
 {
 	if (getppid() == 1)
 		return 1;
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
 	signal(SIGPIPE, SIG_IGN);
-	display = XOpenDisplay(NULL);
-	struct pg_packet p = { .magic = PG_MAGIC,
-			       .op = PG_HELLO,
-			       .status = display ? 0 : 126 };
-	if (display) {
-		XSetErrorHandler(on_error);
-		wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
-		if (FT_Init_FreeType(&ft))
-			p.status = 8;
-	}
+	struct pg_packet p = { .magic = PG_MAGIC, .op = PG_HELLO,
+		.status = FT_Init_FreeType(&ft) ? 8 : 0 };
 	if (send(3, &p, sizeof(p), MSG_NOSIGNAL) != (ssize_t)sizeof(p) ||
 	    p.status)
 		return 1;
@@ -442,11 +439,21 @@ int main(void)
 		p.status = 0;
 		xerror = 0;
 		struct surface *s = lookup(p.id);
-		if (p.op != PG_CREATE && p.op != PG_POLL && !s)
+		if (p.op != PG_CREATE && p.op != PG_POLL && p.op != PG_FONT_METRICS && p.op != PG_MEASURE && !s)
 			p.status = 6;
 		if (!p.status)
 			switch (p.op) {
+			case PG_FONT_METRICS:
+			case PG_MEASURE:
+				native_font_query(&p);
+				break;
 			case PG_CREATE:
+				if (!display) {
+					display = XOpenDisplay(NULL);
+					if (!display) { p.status=126; break; }
+					XSetErrorHandler(on_error);
+					wm_delete=XInternAtom(display,"WM_DELETE_WINDOW",False);
+				}
 				if (s || !p.id || p.c < 1 || p.d < 1 ||
 				    p.c > PG_MAX_DIM || p.d > PG_MAX_DIM) {
 					p.status = 87;
@@ -636,12 +643,13 @@ int main(void)
 				p.status = 50;
 				break;
 			}
-		XSync(display, False);
+		if (display) XSync(display, False);
 		if (xerror)
 			p.status = 31;
 		if (send(3, &p, sizeof(p), MSG_NOSIGNAL) != (ssize_t)sizeof(p))
 			break;
 	}
-	XCloseDisplay(display);
+	if (display) XCloseDisplay(display);
+	FT_Done_FreeType(ft);
 	return 0;
 }

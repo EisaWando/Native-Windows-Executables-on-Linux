@@ -67,3 +67,9 @@ stores interface references and releases them on revoke/window destruction.
 Application AddRef/Release callbacks run outside the global lock. This does not
 provide drag/drop transport, clipboard, COM servers or marshaling. Dialog item
 helpers operate on existing HWNDs; RT_DIALOG construction remains pending.
+
+Font metrics/extent queries now use the native helper's Fontconfig/FreeType path
+without an X display. The helper initializes FreeType on startup and connects
+X11 only for PG_CREATE; polling without a surface stays display-independent.
+Measurements use the same simple glyph advances as rendering, not complex text
+shaping. The full visible suite passed after this change (2026-10-25).

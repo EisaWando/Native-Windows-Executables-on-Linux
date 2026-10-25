@@ -3444,6 +3444,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/drop_targets.inc"
 #include "gui/theme.inc"
 #include "gui/dc_state.inc"
+#include "gui/font_metrics.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3455,6 +3456,13 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextMetricsW")) return GetTextMetricsW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextMetricsA")) return GetTextMetricsA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPoint32W")) return GetTextExtentPoint32W;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPoint32A")) return GetTextExtentPoint32A;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPointW")) return GetTextExtentPointW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPointA")) return GetTextExtentPointA;
+
     if (!by_ordinal && ascii_equal_ci(function, "SetTextAlign")) return SetTextAlign;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextAlign")) return GetTextAlign;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextColor")) return GetTextColor;

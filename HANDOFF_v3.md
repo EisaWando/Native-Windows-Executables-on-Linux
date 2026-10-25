@@ -44,6 +44,25 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: first-window resume Round 3 — real font measurements (2026-10-25)
+
+GetTextMetricsW/A and GetTextExtentPoint(32)W/A measure Fontconfig-substituted
+fonts through FreeType in the existing native helper. Long UTF-16 strings are
+chunked without splitting surrogate pairs. Helper FreeType startup is independent
+of X11: display connection is now deferred to PG_CREATE, so metrics work with
+DISPLAY empty. Measurements match the existing simple glyph-advance renderer;
+complex shaping, full style selection and positive LOGFONT cell-height fidelity
+remain incomplete. New tests/font_metrics.c checks proportional widths, scaling,
+UTF conversion agreement, long strings, metrics ABI and invalid handles.
+Sandbox native-helper startup failed (font PE exited 1, last error126/31; no PE
+exit126). The same fixture passed outside sandbox with DISPLAY empty. Full
+`PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/fonts-r3-native.log 2>&1` exited 0:
+all hard fixtures, 20/20 stress, diagnostics and actual X11 pixel/text/resize/
+input/close checks PASS. PT_LOAD 334616/1048576. Run future helper-dependent
+suites outside the sandbox; no sudo or module reload is involved.
+Notepad++ exit127: 302 resolved /318 unimplemented; KERNEL32!GetProductInfo
+ret=0x1401c3cec. No crash/hang/visible top-level request. No kernel changes/push.
+
 ### Latest: first-window resume Round 2 — DC text attributes (2026-10-25)
 
 Added per-DC Set/GetTextAlign, text/background color and mode getters, and
