@@ -44,6 +44,19 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: continuation Round 5 — caret state (2026-10-25)
+
+Added per-GUI-thread caret owner, shape/bitmap metadata, hide nesting and position,
+plus process blink-time profile. Destroying its window clears the caret. These
+are headless state APIs only; pixel inversion and timed blink presentation are
+not implemented. tests/caret.c checks position, lifecycle, nested hide/show,
+thread ownership/isolation, blink-time roundtrip and automatic destruction.
+`bash tests/run_all.sh > /tmp/r5.log 2>&1` exited 0: all hard fixtures, 20/20
+stress and diagnostics PASS; display SKIP. Bridge PT_LOAD 318232 / 1048576.
+Notepad++ exit 127 at ole32!OleInitialize ret=0x140226e2d, before control/dialog
+creation; no new crash/hang or visible window. Next: per-thread COM apartment
+state and explicit unavailable-class failures. No kernel changes or push.
+
 ### Latest: continuation Round 4 — INIT_ONCE (2026-10-25)
 
 Original atomic INIT_ONCE begin/complete/execute implementation with futex

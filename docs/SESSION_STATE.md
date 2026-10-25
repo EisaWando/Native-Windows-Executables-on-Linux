@@ -1,19 +1,19 @@
 # Resume state
 
-- Current implementation commit: 273a7704e (Round 3 PE resources and menus).
-- Last green suite: `bash tests/run_all.sh > /tmp/r3.log 2>&1`, exit 0,
-  2026-10-25. All hard fixtures, resources, 20/20 thread stress, diagnostics PASS;
-  native display tests SKIP. Bridge PT_LOAD 314104 / 1048576 bytes.
-- Notepad++: exit 127, 267 resolved / 353 unimplemented imports;
-  KERNEL32!InitOnceBeginInitialize, ret=0x140231a62. GetMenu now succeeds.
-- Uncommitted work: INIT_ONCE shims in bridge/init_once.inc, tests/init_once.c,
-  lookup/harness edits and this file. Suite running in /tmp/r4.log.
+- Current implementation commit: 0a7520391 (INIT_ONCE); resources/menus: 273a7704e.
+- Last green suite: `bash tests/run_all.sh > /tmp/r4.log 2>&1`, exit 0,
+  2026-10-25. All hard fixtures, INIT_ONCE, resources, 20/20 stress, diagnostics
+  PASS; display SKIP. Bridge PT_LOAD 314104 / 1048576 bytes.
+- Notepad++: exit 127; 269 resolved / 351 unimplemented imports;
+  USER32!GetCaretBlinkTime ret=0x140226e1b. INIT_ONCE guard now succeeds.
+- Uncommitted work: caret state shims/fixture, bridge/harness edits and this
+  resume-file refresh. Full suite running in /tmp/r5.log.
 - Next three steps:
-  1. Implement/test real INIT_ONCE begin/complete/execute state transitions.
-  2. Run the suite; stop immediately on any PE exit 126 or new target crash/hang.
-  3. Commit green work, refresh this file, follow real control/dialog stops.
+  1. Implement/test caret state APIs required by the actual startup path.
+  2. Run the full suite; commit green work and refresh this file.
+  3. Follow real control/dialog stops; verify native menu display.
 
-Bridge/GUI only; no sudo, kernel edits, module reload or push. Stop for owner
-visual check at the first visible Notepad++ window, new crash/hang, or ~6 rounds.
-New menu presenter still needs display verification. Existing controls are
-headless and incomplete; no dialog parser or x64 unwinding yet.
+Bridge/GUI only; no sudo, kernel edits/reload or push. Stop immediately on any PE
+exit 126; stop for owner visual check at first visible Notepad++ window, any new
+crash/hang, or after ~6 rounds (2 completed this session). New menu presenter
+needs display verification; controls remain incomplete, dialogs/unwinding absent.

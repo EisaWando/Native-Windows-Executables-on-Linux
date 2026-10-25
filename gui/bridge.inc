@@ -53,6 +53,8 @@ struct pe_ui {
 	bool failed;
 	unsigned char keys[256];
 	HANDLE focus, active;
+	HANDLE caret, caret_bitmap;
+	int caret_x, caret_y, caret_width, caret_height, caret_hidden;
 };
 struct pe_property;
 struct pe_subclass;
@@ -528,6 +530,10 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	if (w->ui->active == hwnd)
 		w->ui->active = NULL;
 	PE_STATE_GUARD;
+	if (w->ui->caret == hwnd) {
+		w->ui->caret = w->ui->caret_bitmap = NULL;
+		w->ui->caret_hidden = 0;
+	}
 	w->dead = true;
 	w->visible = false;
 	w->cls->windows--;

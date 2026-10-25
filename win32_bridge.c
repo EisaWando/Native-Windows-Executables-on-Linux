@@ -3439,6 +3439,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/send.inc"
 #include "gui/controls.inc"
 #include "gui/menus.inc"
+#include "gui/caret.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3449,6 +3450,15 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetCaretBlinkTime")) return GetCaretBlinkTime;
+    if (!by_ordinal && ascii_equal_ci(function, "SetCaretBlinkTime")) return SetCaretBlinkTime;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateCaret")) return CreateCaret;
+    if (!by_ordinal && ascii_equal_ci(function, "DestroyCaret")) return DestroyCaret;
+    if (!by_ordinal && ascii_equal_ci(function, "ShowCaret")) return ShowCaret;
+    if (!by_ordinal && ascii_equal_ci(function, "HideCaret")) return HideCaret;
+    if (!by_ordinal && ascii_equal_ci(function, "SetCaretPos")) return SetCaretPos;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCaretPos")) return GetCaretPos;
+
     if (!by_ordinal) {
         if (ascii_equal_ci(function, "InitOnceInitialize")) return InitOnceInitialize;
         if (ascii_equal_ci(function, "InitOnceBeginInitialize")) return InitOnceBeginInitialize;
