@@ -44,6 +44,19 @@ First big target: `npp.8.9.8.portable.x64/notepad++.exe` (Notepad++ 8.9.8 x64). 
 
 ## 3. Current state (verified by logs unless marked)
 
+### Latest: first-window resume Round 2 — DC text attributes (2026-10-25)
+
+Added per-DC Set/GetTextAlign, text/background color and mode getters, and
+Set/GetTextCharacterExtra with independent state and invalid-handle checks.
+Alignment/extra-spacing glyph placement is not yet implemented. Added a visible
+top-level ShowWindow request diagnostic for the owner's desktop-check gate.
+`bash tests/run_all.sh > /tmp/dc-r2.log 2>&1` exited 0: all hard fixtures,
+20/20 stress and diagnostics PASS; display SKIP. tests/dc_state.c checks defaults,
+roundtrips, isolation, invalid flags and stale DC handles. PT_LOAD 334616/1048576.
+Notepad++ exit 127: 298 resolved / 322 unimplemented, GDI32!GetTextMetricsW
+ret=0x1402bd25c. No visible top-level request/crash/hang. Next: real FreeType font
+metrics/measurement via a display-independent helper path. No kernel/push.
+
 ### Latest: first-window resume Round 1 — theme associations (2026-10-25)
 
 SetWindowTheme copies/removes app/class associations for each HWND and sends

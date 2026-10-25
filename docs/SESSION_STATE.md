@@ -1,27 +1,16 @@
 # Resume state
 
-- Current repository commit: 3f2533947 (resolved documentation merge).
-- Current implementation commit: 66b64edb0 (drop-target registration).
-  Earlier green commits: 2fa5adb05 dialog items, b6c84987e COM bookkeeping,
-  b9b9e2182 caret state, 0a7520391 INIT_ONCE, 273a7704e resources/menus.
-- Last green suite: `bash tests/run_all.sh > /tmp/r8.log 2>&1`, exit 0,
-  2026-10-25. All hard fixtures, 20/20 stress, diagnostics PASS; display SKIP.
-  Bridge PT_LOAD 326424 / 1048576 bytes (722152 free).
-- Notepad++: exit 127; 294 resolved / 326 unimplemented imports;
-  UxTheme!SetWindowTheme ret=0x1401c368e, HWND=0x5008036c.
-  No new crash/hang/visible window and no PE exit 126 this session.
-- Uncommitted work: theme associations/shims, tests/theme.c, harness/bridge edits
-  and this checkpoint refresh. Suite running: /tmp/theme-r1.log.
-- Next three steps:
-  1. Implement/test theme data state starting with SetWindowTheme.
-  2. Follow actual control/dialog calls; RT_DIALOG templates and
-     CreateDialogParamW/DialogBoxParamW are not implemented or reached yet.
-  3. Verify native menu strip/popups on a display, run the full suite and commit
-     green work; refresh this file after committing.
+- Current implementation commit: 421630dde (theme associations/classic fallback).
+- Last green run: `bash tests/run_all.sh > /tmp/theme-r1.log 2>&1`, exit 0.
+  All hard fixtures, 20/20 stress and diagnostics PASS; display SKIP.
+  Bridge PT_LOAD 330520 / 1048576 bytes.
+- Notepad++: exit 127, 297 resolved / 323 unimplemented imports;
+  GDI32!SetTextAlign ret=0x1402ba534. No new crash/hang/visible window request.
+- Uncommitted work: this checkpoint refresh only.
+- Next three steps: implement/test DC text state; run full suite and commit green;
+  follow actual control/dialog calls toward the main-window show request.
 
-Resumed by owner: theme/control/dialog loop, up to six new rounds.
-Bridge/GUI only; no sudo, kernel edits/reload or push. Stop immediately on any PE
-exit 126; stop for visual check at the first visible Notepad++ window or any new
-crash/hang. Native menu rendering still needs display verification. Caret state
-has no pixel/blink rendering; drop registration has no drag transport/delivery;
-COM has no servers/marshaling. Dialog construction and unwinding remain absent.
+One of six rounds completed this session. No kernel edits, sudo, reload or push.
+Stop on any PE exit 126, new crash/hang, or visible Notepad++ window request.
+At the show request, give desktop launch/screenshot commands and wait for owner.
+Dialogs/unwinding and native menu display verification remain pending.

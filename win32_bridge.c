@@ -1345,7 +1345,7 @@ struct pe_gui_object {
         struct pe_logpen pen;
         struct pe_logfont font;
         struct pe_bitmap bitmap;
-        struct { HANDLE pen, brush, font, bitmap, palette; HANDLE owner; DWORD text_color, background; int background_mode, x,y; } dc;
+        struct { HANDLE pen, brush, font, bitmap, palette; HANDLE owner; DWORD text_color, background; int background_mode, x,y, character_extra; DWORD text_align; } dc;
         int32_t rect[4];
     } u;
 };
@@ -3443,6 +3443,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/dialog_items.inc"
 #include "gui/drop_targets.inc"
 #include "gui/theme.inc"
+#include "gui/dc_state.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3454,6 +3455,14 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "SetTextAlign")) return SetTextAlign;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextAlign")) return GetTextAlign;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextColor")) return GetTextColor;
+    if (!by_ordinal && ascii_equal_ci(function, "GetBkColor")) return GetBkColor;
+    if (!by_ordinal && ascii_equal_ci(function, "GetBkMode")) return GetBkMode;
+    if (!by_ordinal && ascii_equal_ci(function, "SetTextCharacterExtra")) return SetTextCharacterExtra;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextCharacterExtra")) return GetTextCharacterExtra;
+
     if (!by_ordinal && ascii_equal_ci(function, "SetWindowTheme")) return SetWindowTheme;
     if (!by_ordinal && ascii_equal_ci(function, "OpenThemeData")) return OpenThemeData;
     if (!by_ordinal && ascii_equal_ci(function, "OpenThemeDataEx")) return OpenThemeDataEx;

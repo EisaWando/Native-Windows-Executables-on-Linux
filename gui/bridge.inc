@@ -606,6 +606,10 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 	}
 	BOOL previous = w->visible;
 	bool visible = command != 0;
+	if (visible && !w->realized && !w->cls->builtin && !(w->style & 0x40000000u) && w->parent != (HANDLE)(intptr_t)-3) {
+		raw_puts("[BRIDGE] GUI visible top-level request hwnd=");
+		raw_hex((uintptr_t)hwnd); raw_puts("\n");
+	}
 	if (visible && !pe_window_realize(w))
 		return 0;
 	if (w->realized) {
