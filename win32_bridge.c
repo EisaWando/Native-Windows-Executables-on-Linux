@@ -3567,6 +3567,8 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPoint32A")) return GetTextExtentPoint32A;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPointW")) return GetTextExtentPointW;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentPointA")) return GetTextExtentPointA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentExPointW")) return GetTextExtentExPointW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTextExtentExPointA")) return GetTextExtentExPointA;
 
     if (!by_ordinal && ascii_equal_ci(function, "SetTextAlign")) return SetTextAlign;
     if (!by_ordinal && ascii_equal_ci(function, "GetTextAlign")) return GetTextAlign;

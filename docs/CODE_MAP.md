@@ -24,7 +24,7 @@
 | `gui/dialog_items.inc` | Dialog item helpers: GetDlgItem, SendDlgItemMessage, SetDlgItemText | `GetDlgCtrlID`, `GetDlgItem`, `SendDlgItemMessageW`, `SetDlgItemTextW`, `GetDlgItemTextW` |
 | `gui/drop_targets.inc` | OLE drag-and-drop: RegisterDragDrop, RevokeDragDrop, IDropTarget vtable plumbing | `RegisterDragDrop`, `RevokeDragDrop`, `pe_drop_release`, `pe_drop_window_destroy` |
 | `gui/enum_fonts.inc` | EnumFontFamiliesExW — calls host font-enumeration protocol and invokes FONTENUMPROC callback with real font names | `EnumFontFamiliesExW`, `pe_enum_font_name` |
-| `gui/font_metrics.inc` | GetTextMetrics*, GetTextExtentPoint* — queries DC current font via host and returns TEXTMETRIC | `GetTextMetricsW/A`, `GetTextExtentPoint32W/A`, `GetTextExtentPointW/A`, `pe_font_snapshot` |
+| `gui/font_metrics.inc` | GetTextMetrics*, GetTextExtentPoint*, GetTextExtentExPoint* — queries DC current font via host and returns TEXTMETRIC and cumulative character extents | `GetTextMetricsW/A`, `GetTextExtentPoint32W/A`, `GetTextExtentPointW/A`, `GetTextExtentExPointW/A`, `pe_font_snapshot` |
 | `gui/host.c` | Native X11 helper process: Xlib window creation, painting, font enumeration via Fontconfig/FreeType, protocol loop | `main`, `lookup`, `by_window`, `native_pixel`, `resize_surface`, `fill`, `on_error` |
 | `gui/host_font_enum.inc` | Host-side Fontconfig font enumeration; fills pg_packet reply for bridge | `native_font_enumerate`, `native_enum_name`, `native_enum_string` |
 | `gui/host_menus.inc` | Host-side native X11 menu drawing and event handling | `native_menu_close`, `native_menu_clear`, `native_menu_item`, `menu_label` |
@@ -57,6 +57,7 @@
 | `tests/exit_process_thread.c` | Tests ExitProcess terminates all threads | `mainCRTStartup`, `child` |
 | `tests/files.c` | Tests CreateFile, ReadFile, WriteFile, SetFilePointer | `mainCRTStartup` |
 | `tests/font_metrics.c` | Tests GetTextMetricsW and GetTextExtentPoint32W | `mainCRTStartup`, `failed` |
+| `tests/text_extents.c` | Tests GetTextExtentExPointW and GetTextExtentExPointA with cumulative partial widths, max extent and fit calculations | `mainCRTStartup`, `failed` |
 | `tests/format.c` | Tests wsprintfW/A and wvsprintfW/A format strings | `mainCRTStartup`, `equalw`, `equala`, `via_w` |
 | `tests/bitmaps.c` | Tests CreateCompatibleBitmap, GetDIBits, SetDIBits, BitBlt, StretchBlt, PatBlt, GetPixel/SetPixel on memory DCs | `mainCRTStartup`, `failed` |
 | `tests/gdi_objects.c` | Tests GDI object creation (pens, brushes, bitmaps) in a window | `mainCRTStartup`, `proc` |

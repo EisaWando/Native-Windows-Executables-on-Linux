@@ -24,7 +24,7 @@ while read -r kind offset address physical file_size memory_size rest; do
 done <<< "$headers"
 if ((bridge_segments == 0)); then echo 'FAIL bridge has no PT_LOAD segments'; exit 1; fi
 printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
-for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls init_once caret com dialog_items drop_targets theme dc_state font_metrics format date_format enum_fonts scroll_state bitmaps dc_saved; do
+for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls init_once caret com dialog_items drop_targets theme dc_state font_metrics format date_format enum_fonts scroll_state bitmaps dc_saved text_extents; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme -lwintrust -lole32 || exit 1
 done
 x86_64-w64-mingw32-windres tests/imagelist.rc -o "$work/imagelist.o" || exit 1
@@ -73,6 +73,7 @@ check_pe tests/enum_fonts.exe 0 'enum fonts ok' env DISPLAY= timeout 30s tests/e
 check_pe tests/date_format.exe 0 'date format ok' timeout 15s tests/date_format.exe
 check_pe tests/format.exe 0 'format ok' timeout 15s tests/format.exe
 check_pe tests/font_metrics.exe 0 'font metrics ok' env DISPLAY= timeout 15s tests/font_metrics.exe
+check_pe tests/text_extents.exe 0 'text extents ok' env DISPLAY= timeout 15s tests/text_extents.exe
 check_pe tests/dc_state.exe 0 'dc state ok' timeout 15s tests/dc_state.exe
 check_pe tests/theme.exe 0 'theme ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/theme.exe
 check_pe tests/drop_targets.exe 0 'drop targets ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/drop_targets.exe
