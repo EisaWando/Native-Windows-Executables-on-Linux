@@ -1,6 +1,6 @@
 # Resume state
 
-- Ordinal correction commit: 771e27c32. Scrollbar state is the accompanying commit.
+- Current commit: 4d7e94d23 (scroll state); ordinal correction: 771e27c32.
 - Last green: `bash tests/run_all.sh > /tmp/scroll-batch.log 2>&1` outside sandbox,
   exit0. scroll_state, commctl_ordinals, ImageList and all other hard fixtures,
   20/20 thread stress and diagnostics PASS. Visible tests SKIP.
@@ -26,7 +26,7 @@
 - Tests include icon resources, scaled pixels/alpha, HRESULT/out-pointer failure,
   named/ordinal calls, subclass identity/data/forwarding, bar/window isolation,
   large integer ranges, short SCROLLINFO and invalid handles/parameters.
-- Uncommitted work: none before post-commit checkpoint refresh.
+- Uncommitted work: this post-commit checkpoint refresh only.
 - Next 3 steps: inspect CreateCompatibleBitmap/buffered drawing call path;
   implement/test real bitmap storage/drawing siblings as needed; full regression
   outside sandbox, commit green and refresh this file.
