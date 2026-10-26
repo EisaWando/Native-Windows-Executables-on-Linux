@@ -1332,9 +1332,11 @@ struct pe_logfont {
 struct pe_logbrush { uint32_t style, color; uint64_t hatch; };
 struct pe_logpen { uint32_t style; int32_t x, y; uint32_t color; };
 struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bpp; void *bits; };
+struct pe_raster;struct pe_imagelist;
 struct pe_window;
 struct pe_menu;struct pe_accel_table;
 struct pe_gui_object {
+    struct pe_raster *raster;struct pe_imagelist *imagelist;
     struct pe_window *window;
     struct pe_menu *menu;struct pe_accel_table *accelerator;
     uint32_t type, generation, selected, shared, slot;
@@ -1349,6 +1351,7 @@ struct pe_gui_object {
         int32_t rect[4];
     } u;
 };
+static void pe_raster_free(struct pe_gui_object *);
 /* Only this vector moves on doubling; entry chunks and live pointers stay put. */
 static struct pe_gui_object **pe_gui_objects;
 static unsigned pe_gui_capacity, pe_gui_next;
@@ -1485,7 +1488,7 @@ __attribute__((ms_abi)) BOOL DeleteObject(HANDLE h)
         o->type != PE_GDI_BITMAP && o->type != PE_GDI_PALETTE && o->type != PE_GDI_REGION) { SetLastError(6); return 0; }
     if (o->shared) return 1;
     if (o->selected) { SetLastError(170); return 0; }
-    pe_gui_drop(o); return 1;
+    pe_raster_free(o); pe_gui_drop(o); return 1;
 }
 static void pe_drop_dc(struct pe_gui_object *o)
 {
@@ -1763,13 +1766,13 @@ __attribute__((ms_abi)) HANDLE LoadIconW(HANDLE instance, const uint16_t *name)
 __attribute__((ms_abi)) BOOL DestroyIcon(HANDLE h)
 { PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_ICON); if (!o) return 0;
-    if (!o->shared) pe_gui_drop(o);
+    if (!o->shared) { pe_raster_free(o); pe_gui_drop(o); }
     return 1;
 }
 __attribute__((ms_abi)) BOOL DestroyCursor(HANDLE h)
 { PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(h, PE_GUI_CURSOR); if (!o) return 0;
-    if (!o->shared) pe_gui_drop(o);
+    if (!o->shared) { pe_raster_free(o); pe_gui_drop(o); }
     return 1;
 }
 
@@ -3446,6 +3449,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/dc_state.inc"
 #include "gui/font_metrics.inc"
 #include "gui/enum_fonts.inc"
+#include "gui/image_pixels.inc"
+#include "gui/imagelist.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3460,6 +3465,27 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    /* 0x17d -> LoadImageW: owner-approved inference; MinGW def has no ordinals. */
+    if (by_ordinal && ordinal == 0x17d && ascii_equal_ci(dll, "comctl32.dll")) return ImageList_LoadImageW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateBitmap")) return CreateBitmap;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateDIBSection")) return CreateDIBSection;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_Create")) return ImageList_Create;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_Destroy")) return ImageList_Destroy;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_Add")) return ImageList_Add;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_AddMasked")) return ImageList_AddMasked;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_Remove")) return ImageList_Remove;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_ReplaceIcon")) return ImageList_ReplaceIcon;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_GetIcon")) return ImageList_GetIcon;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_GetIconSize")) return ImageList_GetIconSize;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_SetIconSize")) return ImageList_SetIconSize;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_GetImageCount")) return ImageList_GetImageCount;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_SetBkColor")) return ImageList_SetBkColor;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_GetBkColor")) return ImageList_GetBkColor;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_Draw")) return ImageList_Draw;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_DrawEx")) return ImageList_DrawEx;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_LoadImageW")) return ImageList_LoadImageW;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageList_LoadImageA")) return ImageList_LoadImageA;
+
     if (!by_ordinal && ascii_equal_ci(function, "EnumFontFamiliesExW")) return EnumFontFamiliesExW;
 
     if (!by_ordinal && ascii_equal_ci(function, "GetDateFormatW")) return GetDateFormatW;

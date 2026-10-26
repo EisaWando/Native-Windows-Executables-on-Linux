@@ -1,0 +1,3 @@
+LIBRARY COMCTL32.dll
+EXPORTS
+ImageListLoadOrdinal @381 NONAME

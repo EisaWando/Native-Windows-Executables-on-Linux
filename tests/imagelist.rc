@@ -1,0 +1,20 @@
+// RT_BITMAP: a 4x2 24-bit DIB strip, two 2x2 images.
+201 2
+{
+ 0x00000028L,
+ 0x00000004L,
+ 0x00000002L,
+ 0x00180001L,
+ 0x00000000L,
+ 0x00000018L,
+ 0x00000000L,
+ 0x00000000L,
+ 0x00000000L,
+ 0x00000000L,
+ 0xffffff00L,
+ 0x00ff00ffL,
+ 0xffffffffL,
+ 0x00ff0000L,
+ 0x00ff00ffL,
+ 0x0000ffffL
+}

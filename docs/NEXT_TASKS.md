@@ -29,3 +29,10 @@ Tags: **[any]** = any model can do it. **[strong]** = hard task for a stronger m
 
 ## Phase 4 — documentation
 - [ ] **T7 [any]** Update `README.md` status checklist and import counts (`resolved N of 620`) from `docs/SESSION_STATE.md`. Keep the existing honest tone; do not claim features that are not working. Commit "docs: refresh README status".
+
+## Explicit owner batches completed (2026-10-26)
+- [x] Real EnumFontFamiliesExW via Fontconfig/FreeType; commit e09a0dce8.
+- [x] ImageList family, real ARGB storage/resource DIBs, pixel tests and the
+  owner-approved inferred 0x17d LoadImageW binding; see current implementation commit.
+- [ ] Next session: identify COMCTL32 ordinal0x11 at ret0x1400c4ebe. Do not start
+  a third batch without the owner's continuation. See SESSION_STATE.md.

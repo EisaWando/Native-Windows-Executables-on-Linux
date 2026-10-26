@@ -27,6 +27,9 @@ printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
 for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls init_once caret com dialog_items drop_targets theme dc_state font_metrics format date_format enum_fonts; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme -lwintrust -lole32 || exit 1
 done
+x86_64-w64-mingw32-windres tests/imagelist.rc -o "$work/imagelist.o" || exit 1
+x86_64-w64-mingw32-dlltool --input-def tests/imagelist_ordinal.def --output-lib "$work/imagelist-ordinal.a" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/imagelist.exe tests/imagelist.c "$work/imagelist.o" "$work/imagelist-ordinal.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-windres tests/resources.rc -o "$work/resources.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/resources.exe tests/resources.c "$work/resources.o" -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -DPE_HIDDEN_ONLY -o tests/hidden_windows.exe tests/windows.c -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshell32 || exit 1
@@ -59,6 +62,7 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
+check_pe tests/imagelist.exe 0 'imagelist ok' timeout 30s tests/imagelist.exe
 check_pe tests/enum_fonts.exe 0 'enum fonts ok' env DISPLAY= timeout 30s tests/enum_fonts.exe
 check_pe tests/date_format.exe 0 'date format ok' timeout 15s tests/date_format.exe
 check_pe tests/format.exe 0 'format ok' timeout 15s tests/format.exe
