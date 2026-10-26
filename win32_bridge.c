@@ -1553,6 +1553,26 @@ __attribute__((ms_abi)) int GetObjectW(HANDLE h, int bytes, void *out)
     if ((unsigned)bytes < size) size = bytes;
     memcpy(out, src, size); return size;
 }
+__attribute__((ms_abi)) int GetObjectA(HANDLE h, int bytes, void *out)
+{ PE_STATE_GUARD;
+    struct pe_gui_object *o = pe_gui_lookup(h, 0); if (!o) return 0;
+    if (o->type == PE_GDI_FONT) {
+        struct {
+            int32_t height, width, escapement, orientation, weight;
+            uint8_t italic, underline, strikeout, charset, outprec, clipprec, quality, pitch;
+            char face[32];
+        } lf;
+        memcpy(&lf, &o->u.font, 28);
+        for (int i = 0; i < 32; i++) lf.face[i] = (char)o->u.font.face[i];
+        if (!out) return sizeof(lf);
+        if (bytes < 0) { SetLastError(87); return 0; }
+        unsigned size = sizeof(lf);
+        if ((unsigned)bytes < size) size = bytes;
+        memcpy(out, &lf, size);
+        return size;
+    }
+    return GetObjectW(h, bytes, out);
+}
 __attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
 { PE_STATE_GUARD;
     if (!pe_dc_lookup(dc)) return 0;
@@ -3435,6 +3455,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 }
 
 #include "bridge/resources.inc"
+#include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
 #include "gui/window_state.inc"
 #include "gui/properties.inc"
@@ -3449,7 +3470,6 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/dc_state.inc"
 #include "gui/font_metrics.inc"
 #include "gui/enum_fonts.inc"
-#include "gui/image_pixels.inc"
 #include "gui/imagelist.inc"
 #include "gui/scaled_icon.inc"
 #include "gui/scroll_state.inc"
@@ -3463,6 +3483,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/product.inc"
 #include "bridge/format.inc"
 #include "bridge/date_format.inc"
+#include "bridge/bitmaps.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -3481,7 +3502,15 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (by_ordinal && ordinal == 0x11 && ascii_equal_ci(dll, "comctl32.dll")) return InitCommonControls;
     if (!by_ordinal && ascii_equal_ci(function, "LoadIconWithScaleDown")) return LoadIconWithScaleDown;
     if (!by_ordinal && ascii_equal_ci(function, "CreateBitmap")) return CreateBitmap;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateCompatibleBitmap")) return CreateCompatibleBitmap;
     if (!by_ordinal && ascii_equal_ci(function, "CreateDIBSection")) return CreateDIBSection;
+    if (!by_ordinal && ascii_equal_ci(function, "BitBlt")) return BitBlt;
+    if (!by_ordinal && ascii_equal_ci(function, "StretchBlt")) return StretchBlt;
+    if (!by_ordinal && ascii_equal_ci(function, "PatBlt")) return PatBlt;
+    if (!by_ordinal && ascii_equal_ci(function, "GetDIBits")) return GetDIBits;
+    if (!by_ordinal && ascii_equal_ci(function, "SetDIBits")) return SetDIBits;
+    if (!by_ordinal && ascii_equal_ci(function, "SetStretchBltMode")) return SetStretchBltMode;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStretchBltMode")) return GetStretchBltMode;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Create")) return ImageList_Create;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Destroy")) return ImageList_Destroy;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Add")) return ImageList_Add;
@@ -3903,6 +3932,7 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetObjectType")) return GetObjectType;
     if (!by_ordinal && ascii_equal_ci(function, "GetCurrentObject")) return GetCurrentObject;
     if (!by_ordinal && ascii_equal_ci(function, "GetObjectW")) return GetObjectW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetObjectA")) return GetObjectA;
     if (!by_ordinal && ascii_equal_ci(function, "GetDeviceCaps")) return GetDeviceCaps;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileType")) return GetFileType;
     if (!by_ordinal && ascii_equal_ci(function, "GetACP")) return GetACP;

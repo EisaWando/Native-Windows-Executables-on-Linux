@@ -1182,11 +1182,47 @@ __attribute__((ms_abi)) BOOL TextOutW(HANDLE dc, int x, int y,
 }
 __attribute__((ms_abi)) DWORD GetPixel(HANDLE dc, int x, int y)
 {
+	{
+		PE_STATE_GUARD;
+		struct pe_gui_object *d = pe_dc_lookup(dc);
+		if (d && d->type == PE_GDI_MEMDC) {
+			struct pe_gui_object *b =
+				pe_gui_lookup(d->u.dc.bitmap, PE_GDI_BITMAP);
+			if (!b)
+				return UINT32_MAX;
+			struct pe_raster *r = pe_raster_resource(b);
+			if (!r || x < 0 || y < 0 || x >= r->width ||
+			    y >= r->height)
+				return UINT32_MAX;
+			uint32_t argb = pe_raster_get(r, x, y);
+			return ((argb >> 16) & 0xff) | (argb & 0xff00u) |
+			       ((argb & 0xff) << 16);
+		}
+	}
 	struct pg_packet p = { .op = PG_GET_PIXEL, .a = x, .b = y };
 	return pe_draw(dc, &p) ? pe_color_rgb(p.color) : UINT32_MAX;
 }
 __attribute__((ms_abi)) DWORD SetPixel(HANDLE dc, int x, int y, DWORD color)
 {
+	{
+		PE_STATE_GUARD;
+		struct pe_gui_object *d = pe_dc_lookup(dc);
+		if (d && d->type == PE_GDI_MEMDC) {
+			struct pe_gui_object *b =
+				pe_gui_lookup(d->u.dc.bitmap, PE_GDI_BITMAP);
+			if (!b)
+				return UINT32_MAX;
+			struct pe_raster *r = pe_raster_resource(b);
+			if (!r || x < 0 || y < 0 || x >= r->width ||
+			    y >= r->height)
+				return UINT32_MAX;
+			uint32_t argb = 0xff000000u | ((color & 0xff) << 16) |
+					(color & 0xff00u) |
+					((color >> 16) & 0xff);
+			pe_raster_set(r, x, y, argb);
+			return color;
+		}
+	}
 	struct pg_packet p = {
 		.op = PG_PIXEL, .a = x, .b = y, .color = pe_color_rgb(color)
 	};

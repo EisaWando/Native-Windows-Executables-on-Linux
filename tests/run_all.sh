@@ -24,7 +24,7 @@ while read -r kind offset address physical file_size memory_size rest; do
 done <<< "$headers"
 if ((bridge_segments == 0)); then echo 'FAIL bridge has no PT_LOAD segments'; exit 1; fi
 printf 'PASS bridge window (%s / 1048576 bytes)\n' "$((bridge_end-0x70000000))"
-for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls init_once caret com dialog_items drop_targets theme dc_state font_metrics format date_format enum_fonts scroll_state; do
+for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smoke threads entry_return exit_process_thread thread_fault files calendar registry windows window_demo queues gui_failure crypto colors directories security trust controls init_once caret com dialog_items drop_targets theme dc_state font_metrics format date_format enum_fonts scroll_state bitmaps; do
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme -lwintrust -lole32 || exit 1
 done
 x86_64-w64-mingw32-windres tests/imagelist.rc -o "$work/imagelist.o" || exit 1
@@ -62,6 +62,7 @@ check_pe ./hello.exe 42 'Hello from a native PE on Linux!' bash -c 'cd "$1" && t
 check_pe tests/heap.exe 0 'heap ok' timeout 15s tests/heap.exe
 check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
+check_pe tests/bitmaps.exe 0 'bitmaps ok' timeout 15s tests/bitmaps.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
 check_pe tests/scroll_state.exe 0 'scroll state ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/scroll_state.exe

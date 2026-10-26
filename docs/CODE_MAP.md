@@ -9,6 +9,7 @@
 | `bridge/date_format.inc` | GetDateFormatW/A and GetTimeFormatW/A for the English/UTC locale profile; pattern-based formatter | `pe_datetime`, `pe_date_put`, `pe_date_number`, `GetDateFormatW/A`, `GetTimeFormatW/A`, `GetDateFormatEx`, `GetTimeFormatEx` |
 | `bridge/directories.inc` | Directory and path shims: SetCurrentDirectory, CreateDirectory, GetFullPathName, MulDiv | `SetCurrentDirectoryW/A`, `CreateDirectoryW/A`, `RemoveDirectoryW/A`, `GetFullPathNameW/A`, `MulDiv` |
 | `bridge/format.inc` | wsprintfW/A and wvsprintf* (printf-subset formatter, freestanding) | `pe_format`, `wsprintfW/A`, `wvsprintfW/A` |
+| `bridge/bitmaps.inc` | Software raster bitmap and blit shims for memory DCs (BitBlt, StretchBlt, PatBlt, GetDIBits, SetDIBits, SetStretchBltMode) | `CreateCompatibleBitmap`, `BitBlt`, `StretchBlt`, `PatBlt`, `GetDIBits`, `SetDIBits`, `SetStretchBltMode`, `GetStretchBltMode` |
 | `bridge/init_once.inc` | One-time initialisation (InitOnce*): spin/wait on a uintptr_t flag, single-threaded callback form | `InitOnceInitialize`, `InitOnceBeginInitialize`, `InitOnceComplete`, `InitOnceExecuteOnce` |
 | `bridge/product.inc` | GetProductInfo — always returns "Professional" edition | `GetProductInfo` |
 | `bridge/resources.inc` | PE resource-tree walker; FindResourceEx/W/A, LoadResource, SizeofResource, LockResource, LoadString*, LoadImage stub | `pe_resource_root`, `pe_resource_find`, `FindResourceExW`, `FindResourceW/A`, `LoadResource`, `LoadStringW/A` |
@@ -55,6 +56,7 @@
 | `tests/files.c` | Tests CreateFile, ReadFile, WriteFile, SetFilePointer | `mainCRTStartup` |
 | `tests/font_metrics.c` | Tests GetTextMetricsW and GetTextExtentPoint32W | `mainCRTStartup`, `failed` |
 | `tests/format.c` | Tests wsprintfW/A and wvsprintfW/A format strings | `mainCRTStartup`, `equalw`, `equala`, `via_w` |
+| `tests/bitmaps.c` | Tests CreateCompatibleBitmap, GetDIBits, SetDIBits, BitBlt, StretchBlt, PatBlt, GetPixel/SetPixel on memory DCs | `mainCRTStartup`, `failed` |
 | `tests/gdi_objects.c` | Tests GDI object creation (pens, brushes, bitmaps) in a window | `mainCRTStartup`, `proc` |
 | `tests/gui_failure.c` | Tests bridge behaviour when GUI host is absent | `mainCRTStartup` |
 | `tests/heap.c` | Tests HeapAlloc/HeapReAlloc/HeapFree | `mainCRTStartup` |
