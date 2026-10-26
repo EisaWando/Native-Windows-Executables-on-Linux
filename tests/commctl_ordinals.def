@@ -1,0 +1,8 @@
+LIBRARY COMCTL32.dll
+EXPORTS
+InitControlsOrdinal @17 NONAME
+LoadScaledOrdinal @381 NONAME
+SetSubclassOrdinal @410 NONAME
+GetSubclassOrdinal @411 NONAME
+RemoveSubclassOrdinal @412 NONAME
+DefSubclassOrdinal @413 NONAME

@@ -2,9 +2,6 @@
 #define _WIN32_WINNT 0x0600
 #include <windows.h>
 #include <commctrl.h>
-__declspec(dllimport) HIMAGELIST WINAPI ImageListLoadOrdinal(HINSTANCE, LPCWSTR,
-							     int, int, COLORREF,
-							     UINT, UINT);
 static void failed(unsigned line)
 {
 	char s[32] = "imagelist line ";
@@ -128,16 +125,10 @@ void mainCRTStartup(void)
 				     RGB(255, 0, 255), IMAGE_BITMAP, 0);
 	HIMAGELIST ansi = ImageList_LoadImageA(module, MAKEINTRESOURCEA(201), 2,
 					       1, CLR_NONE, IMAGE_BITMAP, 0);
-	HIMAGELIST ordinal = ImageListLoadOrdinal(
-		module, MAKEINTRESOURCEW(201), 2, 1, CLR_NONE, IMAGE_BITMAP, 0);
-	CHECK(resource && ansi && ordinal &&
-	      ImageList_GetImageCount(resource) == 2 &&
-	      ImageList_GetImageCount(ansi) == 2 &&
-	      ImageList_GetImageCount(ordinal) == 2);
+	CHECK(resource && ansi && ImageList_GetImageCount(resource)==2 && ImageList_GetImageCount(ansi)==2);
 	CHECK(!ImageList_LoadImageW(module, MAKEINTRESOURCEW(999), 2, 1,
 				    CLR_NONE, IMAGE_BITMAP, 0));
-	CHECK(ImageList_Destroy(resource) && ImageList_Destroy(ansi) &&
-	      ImageList_Destroy(ordinal));
+	CHECK(ImageList_Destroy(resource) && ImageList_Destroy(ansi));
 	CHECK(SelectObject(dc, old) == destination && DeleteDC(dc) &&
 	      DeleteObject(destination));
 	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),

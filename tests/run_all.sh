@@ -28,8 +28,10 @@ for name in hello heap utf exception_diag gdi_objects tls sync paths thread_smok
     x86_64-w64-mingw32-gcc "${flags[@]}" -o "tests/$name.exe" "tests/$name.c" -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lbcrypt -ldwmapi -luxtheme -lwintrust -lole32 || exit 1
 done
 x86_64-w64-mingw32-windres tests/imagelist.rc -o "$work/imagelist.o" || exit 1
-x86_64-w64-mingw32-dlltool --input-def tests/imagelist_ordinal.def --output-lib "$work/imagelist-ordinal.a" || exit 1
-x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/imagelist.exe tests/imagelist.c "$work/imagelist.o" "$work/imagelist-ordinal.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/imagelist.exe tests/imagelist.c "$work/imagelist.o" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
+x86_64-w64-mingw32-windres tests/ordinal_icons.rc -o "$work/ordinal-icons.o" || exit 1
+x86_64-w64-mingw32-dlltool --input-def tests/commctl_ordinals.def --output-lib "$work/commctl-ordinals.a" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/commctl_ordinals.exe tests/commctl_ordinals.c "$work/ordinal-icons.o" "$work/commctl-ordinals.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-windres tests/resources.rc -o "$work/resources.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/resources.exe tests/resources.c "$work/resources.o" -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -DPE_HIDDEN_ONLY -o tests/hidden_windows.exe tests/windows.c -lkernel32 -lgdi32 -luser32 -lcomctl32 -lshell32 || exit 1
@@ -62,6 +64,7 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/tls.exe 0 'tls ok: 123 -7 42 0' timeout 15s tests/tls.exe
 check_pe tests/sync.exe 0 'sync ok' timeout 15s tests/sync.exe
+check_pe tests/commctl_ordinals.exe 0 'commctl ordinals ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 30s tests/commctl_ordinals.exe
 check_pe tests/imagelist.exe 0 'imagelist ok' timeout 30s tests/imagelist.exe
 check_pe tests/enum_fonts.exe 0 'enum fonts ok' env DISPLAY= timeout 30s tests/enum_fonts.exe
 check_pe tests/date_format.exe 0 'date format ok' timeout 15s tests/date_format.exe

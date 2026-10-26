@@ -3451,6 +3451,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/enum_fonts.inc"
 #include "gui/image_pixels.inc"
 #include "gui/imagelist.inc"
+#include "gui/scaled_icon.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3465,8 +3466,10 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
-    /* 0x17d -> LoadImageW: owner-approved inference; MinGW def has no ordinals. */
-    if (by_ordinal && ordinal == 0x17d && ascii_equal_ci(dll, "comctl32.dll")) return ImageList_LoadImageW;
+    /* 0x17d: five-argument HRESULT/out-HICON ABI verified in Notepad++ disassembly. */
+    if (by_ordinal && ordinal == 0x17d && ascii_equal_ci(dll, "comctl32.dll")) return LoadIconWithScaleDown;
+    if (by_ordinal && ordinal == 0x11 && ascii_equal_ci(dll, "comctl32.dll")) return InitCommonControls;
+    if (!by_ordinal && ascii_equal_ci(function, "LoadIconWithScaleDown")) return LoadIconWithScaleDown;
     if (!by_ordinal && ascii_equal_ci(function, "CreateBitmap")) return CreateBitmap;
     if (!by_ordinal && ascii_equal_ci(function, "CreateDIBSection")) return CreateDIBSection;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Create")) return ImageList_Create;

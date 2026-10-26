@@ -33,6 +33,6 @@ Tags: **[any]** = any model can do it. **[strong]** = hard task for a stronger m
 ## Explicit owner batches completed (2026-10-26)
 - [x] Real EnumFontFamiliesExW via Fontconfig/FreeType; commit e09a0dce8.
 - [x] ImageList family, real ARGB storage/resource DIBs, pixel tests and the
-  owner-approved inferred 0x17d LoadImageW binding; see current implementation commit.
-- [ ] Next session: identify COMCTL32 ordinal0x11 at ret0x1400c4ebe. Do not start
-  a third batch without the owner's continuation. See SESSION_STATE.md.
+  named ImageList_LoadImageW. Earlier 0x17d inference was wrong; see COMCTL_ORDINALS.md.
+- [x] Audit ordinal0x11 (InitCommonControls), correct 0x17d to LoadIconWithScaleDown;
+  verify existing subclass ordinals. See COMCTL_ORDINALS.md and current session tests.
