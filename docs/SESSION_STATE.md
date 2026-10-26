@@ -1,6 +1,6 @@
 # Resume state
 
-- Font commit: e09a0dce8. ImageList batch is the accompanying commit (git log -1).
+- Current commit: ea206d881 (ImageLists); font enumeration: e09a0dce8.
 - Last green: `PE_GUI_TEST=1 bash tests/run_all.sh > /tmp/imagelist-final.log 2>&1`
   outside sandbox, exit0. ImageList/enum_fonts, all hard fixtures, 20/20 thread
   stress, diagnostics and real X11 pixel/text/resize/input checks PASS.
@@ -21,7 +21,7 @@
   DIB bitmap/icon decoding supports 40+ byte headers and common RGB/bitfields.
   Font enumeration uses real catalog/metrics/OS2 charset data; bitmap-font charset
   fallback only recognizes real Latin glyph coverage. No fake font catalog.
-- Uncommitted work: none before post-commit checkpoint refresh.
+- Uncommitted work: this post-commit checkpoint refresh only.
 - Next 3 steps: identify COMCTL32 ordinal0x11; implement/test its related APIs;
   run full suite outside sandbox, commit green and refresh this file.
 
