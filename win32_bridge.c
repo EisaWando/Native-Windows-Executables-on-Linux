@@ -3484,6 +3484,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/format.inc"
 #include "bridge/date_format.inc"
 #include "bridge/bitmaps.inc"
+#include "bridge/dc_saved.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -3511,6 +3512,22 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "SetDIBits")) return SetDIBits;
     if (!by_ordinal && ascii_equal_ci(function, "SetStretchBltMode")) return SetStretchBltMode;
     if (!by_ordinal && ascii_equal_ci(function, "GetStretchBltMode")) return GetStretchBltMode;
+    if (!by_ordinal && ascii_equal_ci(function, "SaveDC")) return SaveDC;
+    if (!by_ordinal && ascii_equal_ci(function, "RestoreDC")) return RestoreDC;
+    if (!by_ordinal && ascii_equal_ci(function, "SetViewportOrgEx")) return SetViewportOrgEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetViewportOrgEx")) return GetViewportOrgEx;
+    if (!by_ordinal && ascii_equal_ci(function, "OffsetViewportOrgEx")) return OffsetViewportOrgEx;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowOrgEx")) return SetWindowOrgEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowOrgEx")) return GetWindowOrgEx;
+    if (!by_ordinal && ascii_equal_ci(function, "SetMapMode")) return SetMapMode;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMapMode")) return GetMapMode;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipBox")) return GetClipBox;
+    if (!by_ordinal && ascii_equal_ci(function, "IntersectClipRect")) return IntersectClipRect;
+    if (!by_ordinal && ascii_equal_ci(function, "ExcludeClipRect")) return ExcludeClipRect;
+    if (!by_ordinal && ascii_equal_ci(function, "SelectClipRgn")) return SelectClipRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateRectRgn")) return CreateRectRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateRectRgnIndirect")) return CreateRectRgnIndirect;
+    if (!by_ordinal && ascii_equal_ci(function, "SetRectRgn")) return SetRectRgn;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Create")) return ImageList_Create;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Destroy")) return ImageList_Destroy;
     if (!by_ordinal && ascii_equal_ci(function, "ImageList_Add")) return ImageList_Add;

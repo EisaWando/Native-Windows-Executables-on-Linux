@@ -10,6 +10,7 @@
 | `bridge/directories.inc` | Directory and path shims: SetCurrentDirectory, CreateDirectory, GetFullPathName, MulDiv | `SetCurrentDirectoryW/A`, `CreateDirectoryW/A`, `RemoveDirectoryW/A`, `GetFullPathNameW/A`, `MulDiv` |
 | `bridge/format.inc` | wsprintfW/A and wvsprintf* (printf-subset formatter, freestanding) | `pe_format`, `wsprintfW/A`, `wvsprintfW/A` |
 | `bridge/bitmaps.inc` | Software raster bitmap and blit shims for memory DCs (BitBlt, StretchBlt, PatBlt, GetDIBits, SetDIBits, SetStretchBltMode) | `CreateCompatibleBitmap`, `BitBlt`, `StretchBlt`, `PatBlt`, `GetDIBits`, `SetDIBits`, `SetStretchBltMode`, `GetStretchBltMode` |
+| `bridge/dc_saved.inc` | Device context state stack (SaveDC/RestoreDC), origins, mapping modes and clipping regions | `SaveDC`, `RestoreDC`, `SetViewportOrgEx`, `GetViewportOrgEx`, `OffsetViewportOrgEx`, `SetWindowOrgEx`, `GetWindowOrgEx`, `SetMapMode`, `GetMapMode`, `GetClipBox`, `IntersectClipRect`, `ExcludeClipRect`, `SelectClipRgn`, `CreateRectRgn`, `CreateRectRgnIndirect`, `SetRectRgn` |
 | `bridge/init_once.inc` | One-time initialisation (InitOnce*): spin/wait on a uintptr_t flag, single-threaded callback form | `InitOnceInitialize`, `InitOnceBeginInitialize`, `InitOnceComplete`, `InitOnceExecuteOnce` |
 | `bridge/product.inc` | GetProductInfo — always returns "Professional" edition | `GetProductInfo` |
 | `bridge/resources.inc` | PE resource-tree walker; FindResourceEx/W/A, LoadResource, SizeofResource, LockResource, LoadString*, LoadImage stub | `pe_resource_root`, `pe_resource_find`, `FindResourceExW`, `FindResourceW/A`, `LoadResource`, `LoadStringW/A` |
@@ -47,6 +48,7 @@
 | `tests/crypto.c` | Tests CryptCreateHash/CryptHashData/CryptGetHashParam SHA-256 | `mainCRTStartup`, `digest_is` |
 | `tests/date_format.c` | Tests GetDateFormatW/A and GetTimeFormatW/A | `mainCRTStartup`, `equal`, `equala` |
 | `tests/dc_state.c` | Tests DC text-attribute getters/setters | `mainCRTStartup` |
+| `tests/dc_saved.c` | Tests SaveDC/RestoreDC, ViewportOrg, WindowOrg, MapMode, ClipBox, ClipRect, Regions | `mainCRTStartup`, `failed` |
 | `tests/dialog_items.c` | Tests GetDlgItem/SetDlgItemTextW | `mainCRTStartup` |
 | `tests/directories.c` | Tests SetCurrentDirectory, CreateDirectory, GetFullPathName | `mainCRTStartup`, `same` |
 | `tests/drop_targets.c` | Tests RegisterDragDrop/RevokeDragDrop with a dummy IDropTarget | `mainCRTStartup`, `allocator`, `query`, `add_ref` |
