@@ -60,9 +60,11 @@ struct pe_ui {
 struct pe_property;
 struct pe_subclass;
 struct pe_control;
+struct pe_scrollbars;
 struct pe_window {
 	struct pe_property *properties;
 	struct pe_control *control;
+	struct pe_scrollbars *scrollbars;
 	void *drop_target;
 	struct pe_window *next;
 	struct pe_ui *ui;
@@ -81,6 +83,7 @@ struct pe_window {
 };
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
+static void pe_scroll_clear(struct pe_window *);
 static void pe_properties_clear(struct pe_window *);
 static int pe_window_menu_height(struct pe_window *);
 static bool pe_menu_sync(struct pe_window *);
@@ -477,6 +480,7 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
 	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
 	w->theme_app = w->theme_ids = NULL;
+	pe_scroll_clear(w);
 	pe_properties_clear(w);
 		struct pe_gui_object *o =
 			pe_gui_lookup(w->handle, PE_GUI_WINDOW);
@@ -548,6 +552,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
 	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
 	w->theme_app = w->theme_ids = NULL;
+	pe_scroll_clear(w);
 	pe_properties_clear(w);
 	pe_control_clear(w);
 	if (w->menu && !(w->style & 0x40000000u))

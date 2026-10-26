@@ -36,3 +36,10 @@ Tags: **[any]** = any model can do it. **[strong]** = hard task for a stronger m
   named ImageList_LoadImageW. Earlier 0x17d inference was wrong; see COMCTL_ORDINALS.md.
 - [x] Audit ordinal0x11 (InitCommonControls), correct 0x17d to LoadIconWithScaleDown;
   verify existing subclass ordinals. See COMCTL_ORDINALS.md and current session tests.
+
+## Ordinal audit continuation completed
+- [x] Correct 381 to LoadIconWithScaleDown, bind 17 InitCommonControls; prove
+  410-413 by ordinal tests and document all seven imports (COMCTL_ORDINALS.md).
+- [x] Headless scrollbar state family; green /tmp/scroll-batch.log.
+- [ ] Next owner-authorized session: CreateCompatibleBitmap (316x400) and related
+  real memory bitmap/drawing support. Stop after the current two green batches.

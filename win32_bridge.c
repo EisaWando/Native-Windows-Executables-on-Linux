@@ -3452,6 +3452,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/image_pixels.inc"
 #include "gui/imagelist.inc"
 #include "gui/scaled_icon.inc"
+#include "gui/scroll_state.inc"
 #include "bridge/crypto.inc"
 #include "bridge/colors.inc"
 #include "bridge/directories.inc"
@@ -3466,6 +3467,15 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetScrollInfo")) return GetScrollInfo;
+    if (!by_ordinal && ascii_equal_ci(function, "SetScrollInfo")) return SetScrollInfo;
+    if (!by_ordinal && ascii_equal_ci(function, "GetScrollPos")) return GetScrollPos;
+    if (!by_ordinal && ascii_equal_ci(function, "SetScrollPos")) return SetScrollPos;
+    if (!by_ordinal && ascii_equal_ci(function, "GetScrollRange")) return GetScrollRange;
+    if (!by_ordinal && ascii_equal_ci(function, "SetScrollRange")) return SetScrollRange;
+    if (!by_ordinal && ascii_equal_ci(function, "ShowScrollBar")) return ShowScrollBar;
+    if (!by_ordinal && ascii_equal_ci(function, "EnableScrollBar")) return EnableScrollBar;
+
     /* 0x17d: five-argument HRESULT/out-HICON ABI verified in Notepad++ disassembly. */
     if (by_ordinal && ordinal == 0x17d && ascii_equal_ci(dll, "comctl32.dll")) return LoadIconWithScaleDown;
     if (by_ordinal && ordinal == 0x11 && ascii_equal_ci(dll, "comctl32.dll")) return InitCommonControls;
