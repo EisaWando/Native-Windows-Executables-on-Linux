@@ -415,6 +415,7 @@ static void event_packet(struct pg_packet *p)
 	p->a = 0;
 }
 #include "host_metrics.inc"
+#include "host_font_enum.inc"
 int main(void)
 {
 	if (getppid() == 1)
@@ -439,10 +440,14 @@ int main(void)
 		p.status = 0;
 		xerror = 0;
 		struct surface *s = lookup(p.id);
-		if (p.op != PG_CREATE && p.op != PG_POLL && p.op != PG_FONT_METRICS && p.op != PG_MEASURE && !s)
+		if (p.op != PG_CREATE && p.op != PG_POLL && p.op != PG_FONT_METRICS && p.op != PG_MEASURE && p.op != PG_FONT_ENUM_BEGIN && p.op != PG_FONT_ENUM_NEXT && p.op != PG_FONT_ENUM_END && !s)
 			p.status = 6;
 		if (!p.status)
 			switch (p.op) {
+			case PG_FONT_ENUM_BEGIN:
+			case PG_FONT_ENUM_NEXT:
+			case PG_FONT_ENUM_END:
+				native_font_enumerate(&p); break;
 			case PG_FONT_METRICS:
 			case PG_MEASURE:
 				native_font_query(&p);

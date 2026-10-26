@@ -26,7 +26,8 @@ enum {
 	PG_MENU_ITEM,
 	PG_MENU_END,
 	PG_FONT_METRICS,
-	PG_MEASURE
+	PG_MEASURE,
+	PG_FONT_ENUM_BEGIN, PG_FONT_ENUM_NEXT, PG_FONT_ENUM_END
 };
 struct pg_text_metrics {
 	int32_t height, ascent, descent, internal, external, average, maximum,
@@ -35,6 +36,12 @@ struct pg_text_metrics {
 	uint8_t italic, underline, strike, pitch, charset;
 };
 _Static_assert(sizeof(struct pg_text_metrics) == 60, "TEXTMETRICW layout");
+struct pg_font_enum_record {
+ struct pg_text_metrics metrics;
+ uint32_t ntm_flags, em, signature[6], font_type;
+ char family[128],full[256],style[128],script[32];
+};
+_Static_assert(sizeof(struct pg_font_enum_record)<=PG_TEXT,"font enum wire size");
 struct pg_packet {
 	uint32_t magic, op;
 	uint64_t id;
