@@ -15,6 +15,17 @@ Tags: **[any]** = any model can do it. **[strong]** = hard task for a stronger m
   4. Run Notepad++ again and note the new stop and counts.
   After 5 rounds, report.
 
+## Current blocker (2026-10-27) — [strong]
+Notepad++ now gets as far as `USER32!CreateDialogIndirectParamW` (378 resolved /
+242 unimplemented imports), so the next step is T3a/T3b below: parse `RT_DIALOG`
+templates and create the dialog window with its child controls, send
+`WM_INITDIALOG`, then T3c for the modal loop. This is the `[strong]` boundary, so
+the batch loop stopped here instead of starting dialogs.
+Completed just before this stop: clipboard + HGLOBAL (60b5ec006), locale identity
+(cb439baf5), GetLocaleInfoW/A/Ex (25313d2a2), GetStringTypeW and LCMapString on
+generated Unicode tables (8d1f0e0ce), ExtTextOutW/A (1c8f75787). The display test
+`tests/windows.exe` passes with real X11/FreeType pixel checks.
+
 ## Phase 2 — larger features [strong]
 - [ ] **T3a [strong]** Dialog templates: parse `RT_DIALOG` resources (`DLGTEMPLATE` and `DLGTEMPLATEEX`: styles, items, class names as atoms or strings, text, extra data). Unit test with a `windres`-built dialog PE.
 - [ ] **T3b [strong]** `CreateDialogParamW`, `CreateDialogIndirectParamW`: create the dialog window and its child controls, send `WM_INITDIALOG`; `DefDlgProcW`, `GetDlgItem`, `SetDlgItemTextW`, `EndDialog`.
