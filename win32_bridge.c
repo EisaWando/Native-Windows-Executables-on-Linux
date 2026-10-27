@@ -3489,6 +3489,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/update_region.inc"
+#include "bridge/clipboard.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -3861,6 +3862,26 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "RegisterClipboardFormatA")) return RegisterClipboardFormatA;
     if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameW")) return GetClipboardFormatNameW;
     if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameA")) return GetClipboardFormatNameA;
+    if (!by_ordinal && ascii_equal_ci(function, "OpenClipboard")) return OpenClipboard;
+    if (!by_ordinal && ascii_equal_ci(function, "CloseClipboard")) return CloseClipboard;
+    if (!by_ordinal && ascii_equal_ci(function, "EmptyClipboard")) return EmptyClipboard;
+    if (!by_ordinal && ascii_equal_ci(function, "SetClipboardData")) return SetClipboardData;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipboardData")) return GetClipboardData;
+    if (!by_ordinal && ascii_equal_ci(function, "IsClipboardFormatAvailable")) return IsClipboardFormatAvailable;
+    if (!by_ordinal && ascii_equal_ci(function, "CountClipboardFormats")) return CountClipboardFormats;
+    if (!by_ordinal && ascii_equal_ci(function, "EnumClipboardFormats")) return EnumClipboardFormats;
+    if (!by_ordinal && ascii_equal_ci(function, "GetPriorityClipboardFormat")) return GetPriorityClipboardFormat;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipboardOwner")) return GetClipboardOwner;
+    if (!by_ordinal && ascii_equal_ci(function, "GetOpenClipboardWindow")) return GetOpenClipboardWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClipboardSequenceNumber")) return GetClipboardSequenceNumber;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalAlloc")) return GlobalAlloc;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalFree")) return GlobalFree;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalLock")) return GlobalLock;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalUnlock")) return GlobalUnlock;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalSize")) return GlobalSize;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalFlags")) return GlobalFlags;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalHandle")) return GlobalHandle;
+    if (!by_ordinal && ascii_equal_ci(function, "GlobalReAlloc")) return GlobalReAlloc;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterClassW")) return RegisterClassW;
     if (!by_ordinal && ascii_equal_ci(function, "GetClassInfoW")) return GetClassInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "lstrcpynA")) return lstrcpynA;
