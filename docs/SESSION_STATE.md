@@ -1,10 +1,11 @@
 # Resume state
 
-- Latest batch: window tree, reparenting and z-order (commit pending post-commit refresh).
+- Latest batch: window tree, reparenting and z-order (commit 3f85dd40c).
 - Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 69 PASS; tests/window_tree.exe PASS; visible tests SKIP.
-- Latest suite Notepad++: exit 127, 400 resolved / 220 unimplemented, USER32!GetSysColorBrush ret=0x14008ea9d; no visible top-level request or new crash observed.
+- Latest suite and post-commit Notepad++: exit 127, 400 resolved / 220 unimplemented, USER32!GetSysColorBrush ret=0x14008ea9d; no visible top-level request or new crash observed.
 - Limits: popup owner and parent still share metadata, so SetParent on an owned popup can return the owner instead of the desktop; owner-chain topmost propagation is not implemented. Deferred native updates are sequential, persistent X11 topmost depends on the window manager, and child controls remain headless.
-- Next steps: verify the post-commit Notepad++ stop; separate popup owners from parents and propagate topmost state; implement GetSysColorBrush. Modal dialogs remain a conditional owner-requested batch.
+- Next steps: separate popup owners from parents and propagate topmost state; implement GetSysColorBrush; resume the owner-requested modal-dialog batch when quota allows.
+- Uncommitted work: this post-commit SESSION_STATE refresh.
 
 - Previous batch: coordinates and hit testing (commit 01764a6a6).
 - Previous full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the sandbox, exit 0, 68 PASS; tests/coords.exe PASS, visible tests SKIP.
