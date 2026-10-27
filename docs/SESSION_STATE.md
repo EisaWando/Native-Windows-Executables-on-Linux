@@ -5,13 +5,13 @@
 - Clipboard remains process-local; text synthesis uses UTF-8 for ANSI/OEM. Delayed-rendered text gains synthesized formats only after rendering.
 
 
-- Current commit: 1c8f75787 — ExtTextOutW/A with ETO_OPAQUE, ETO_CLIPPED and lpDx.
-- Last green: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, **66 PASS**, no FAIL.
+- Current commit: f35f9c97c — clipboard synthesis, ownership and listeners.
+- Previous recorded green: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, **66 PASS**, no FAIL.
   Display test `timeout 30s tests/windows.exe` (DISPLAY=:0, real X11 + FreeType
   helper) prints `windows ok`, exit 0, including the new ExtTextOutW pixel checks.
 - Notepad++: exit 127, stops at **USER32!CreateDialogIndirectParamW**
   (rcx=HINSTANCE 0x14000000, rdx=DLGTEMPLATE, r8=owner HWND, r9=0x1401e9e80).
-  **378 resolved / 242 unimplemented.**
+  **380 resolved / 240 unimplemented** in the post-commit standalone run.
 - Batches done in this session (one small batch each, suite green after each):
   1. `60b5ec006` clipboard family + HGLOBAL global memory (`bridge/clipboard.inc`,
      `tests/clipboard.c`): OpenClipboard nesting, EmptyClipboard owner
@@ -41,7 +41,7 @@
 - Next 3 steps:
   1. Dialog templates (`DLGTEMPLATE`/`DLGTEMPLATEEX`, CreateDialogIndirectParamW,
      CreateDialogParamW, DefDlgProcW) — **tagged `[strong]` in NEXT_TASKS (T3a/T3b)**.
-  2. Then IsDialogMessageW/EndDialog modal loop (T3c) and the remaining 242 imports
+  2. Then IsDialogMessageW/EndDialog modal loop (T3c) and the remaining 240 imports
      in the same import-by-import loop.
   3. Owner step: run `./npp.8.9.8.portable.x64/notepad++.exe` on the desktop when
      the bridge reports the visible main-window request, and report the screenshot.
