@@ -3488,6 +3488,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/date_format.inc"
 #include "bridge/locale.inc"
 #include "bridge/locale_info.inc"
+#include "bridge/char_type_ranges.inc"
+#include "bridge/char_type.inc"
+#include "bridge/case_map.inc"
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/update_region.inc"
@@ -4022,6 +4025,29 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoW")) return GetLocaleInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoA")) return GetLocaleInfoA;
     if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoEx")) return GetLocaleInfoEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStringTypeW")) return GetStringTypeW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStringTypeA")) return GetStringTypeA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStringTypeExW")) return GetStringTypeExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetStringTypeExA")) return GetStringTypeExA;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharAlphaW")) return IsCharAlphaW;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharAlphaNumericW")) return IsCharAlphaNumericW;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharUpperW")) return IsCharUpperW;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharLowerW")) return IsCharLowerW;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharAlphaA")) return IsCharAlphaA;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharAlphaNumericA")) return IsCharAlphaNumericA;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharUpperA")) return IsCharUpperA;
+    if (!by_ordinal && ascii_equal_ci(function, "IsCharLowerA")) return IsCharLowerA;
+    if (!by_ordinal && ascii_equal_ci(function, "LCMapStringW")) return LCMapStringW;
+    if (!by_ordinal && ascii_equal_ci(function, "LCMapStringA")) return LCMapStringA;
+    if (!by_ordinal && ascii_equal_ci(function, "LCMapStringEx")) return LCMapStringEx;
+    if (!by_ordinal && ascii_equal_ci(function, "CharUpperW")) return CharUpperW;
+    if (!by_ordinal && ascii_equal_ci(function, "CharLowerW")) return CharLowerW;
+    if (!by_ordinal && ascii_equal_ci(function, "CharUpperA")) return CharUpperA;
+    if (!by_ordinal && ascii_equal_ci(function, "CharLowerA")) return CharLowerA;
+    if (!by_ordinal && ascii_equal_ci(function, "CharUpperBuffW")) return CharUpperBuffW;
+    if (!by_ordinal && ascii_equal_ci(function, "CharLowerBuffW")) return CharLowerBuffW;
+    if (!by_ordinal && ascii_equal_ci(function, "CharUpperBuffA")) return CharUpperBuffA;
+    if (!by_ordinal && ascii_equal_ci(function, "CharLowerBuffA")) return CharLowerBuffA;
     if (!by_ordinal && ascii_equal_ci(function, "AreFileApisANSI")) return AreFileApisANSI;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleCP")) return GetConsoleCP;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleOutputCP")) return GetConsoleOutputCP;
