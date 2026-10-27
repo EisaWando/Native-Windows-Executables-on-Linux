@@ -142,6 +142,38 @@ static LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		CHECK(GetPixel(dc, 40, 80) == RGB(255, 220, 0));
 		SelectObject(dc, old);
 		DeleteObject(pen);
+		/* ExtTextOutW: ETO_OPAQUE fills the rectangle, ETO_CLIPPED forbids ink
+		 * outside it, lpDx places characters, and glyph indices are refused. */
+		CHECK(SetBkMode(dc, OPAQUE) == TRANSPARENT);
+		SetBkColor(dc, RGB(0, 0, 0));
+		RECT band = { 10, 60, 200, 76 };
+		CHECK(ExtTextOutW(dc, 12, 62, ETO_OPAQUE, &band, L"ext text", 8, 0));
+		CHECK(GetPixel(dc, 150, 62) == RGB(0, 0, 0));
+		int opaque_ink = 0;
+		for (int y = 62; y < 76; y++)
+			for (int x = 12; x < 60; x++)
+				if (GetPixel(dc, x, y) != RGB(0, 0, 0)) opaque_ink++;
+		CHECK(opaque_ink > 3);
+		CHECK(SetBkMode(dc, TRANSPARENT) == OPAQUE);
+		RECT narrow = { 20, 100, 30, 116 };
+		CHECK(ExtTextOutW(dc, 20, 100, ETO_CLIPPED, &narrow, L"clipped", 7, 0));
+		int outside = 0;
+		for (int y = 100; y < 116; y++)
+			for (int x = 30; x < 130; x++)
+				if (GetPixel(dc, x, y) != RGB(30, 70, 160)) outside++;
+		CHECK(outside == 0);
+		int spacing[2] = { 30, 0 };
+		CHECK(ExtTextOutW(dc, 12, 120, 0, 0, L"ab", 2, spacing));
+		int spaced_ink = 0;
+		for (int y = 120; y < 134; y++)
+			for (int x = 42; x < 60; x++)
+				if (GetPixel(dc, x, y) != RGB(30, 70, 160)) spaced_ink++;
+		CHECK(spaced_ink > 0);
+		CHECK(ExtTextOutA(dc, 12, 140, 0, 0, "ascii", 5, 0));
+		CHECK(ExtTextOutW(dc, 0, 0, 0, 0, L"ignored", 0, 0));
+		CHECK(!ExtTextOutW(dc, 0, 0, ETO_GLYPH_INDEX, 0, L"x", 1, 0) &&
+		      GetLastError() == ERROR_INVALID_FUNCTION);
+		CHECK(!ExtTextOutW(dc, 0, 0, 0, 0, 0, 4, 0) && GetLastError() == 87);
 		CHECK(EndPaint(hwnd, &ps));
 		paints++;
 		PostMessageW(hwnd, WM_APP + 2, 0, 0);

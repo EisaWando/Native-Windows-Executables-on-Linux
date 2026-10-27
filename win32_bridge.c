@@ -3491,6 +3491,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/char_type_ranges.inc"
 #include "bridge/char_type.inc"
 #include "bridge/case_map.inc"
+#include "gui/ext_text_out.inc"
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/update_region.inc"
@@ -3794,6 +3795,8 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "SetBkColor")) return SetBkColor;
     if (!by_ordinal && ascii_equal_ci(function, "SetBkMode")) return SetBkMode;
     if (!by_ordinal && ascii_equal_ci(function, "TextOutW")) return TextOutW;
+    if (!by_ordinal && ascii_equal_ci(function, "ExtTextOutW")) return ExtTextOutW;
+    if (!by_ordinal && ascii_equal_ci(function, "ExtTextOutA")) return ExtTextOutA;
     if (!by_ordinal && ascii_equal_ci(function, "GetPixel")) return GetPixel;
     if (!by_ordinal && ascii_equal_ci(function, "SetPixel")) return SetPixel;
     if (!by_ordinal && ascii_equal_ci(function, "MoveToEx")) return MoveToEx;
