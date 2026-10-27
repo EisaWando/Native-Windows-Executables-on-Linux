@@ -109,7 +109,7 @@ USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxThem
 
 ### GUI design
 
-The owner selected an original Windows compatibility layer. The bridge owns
+The team has selected an original Windows compatibility layer. The bridge owns
 Windows handles, window procedures and per-thread message queues. A separate
 native `pe_gui_host` process owns X11 and software framebuffers, with Fontconfig
 and FreeType for fonts. It runs through the normal Linux loader, leaving the
@@ -126,7 +126,7 @@ Notepad++ reaches its hidden editor/control initialization. See
 
 ## Honest caveats
 
-- **Security.** A PE loader in the kernel parses untrusted input. A bug there is a kernel bug. The design keeps the in-kernel part small, but this code needs review before anyone runs it on a machine they care about. **Test in a virtual machine.**
+- **Security.** A PE loader in the kernel parses untrusted input. The design keeps the in-kernel part small, but this code needs review before anyone runs it on a machine they care about. **Test in a virtual machine.**
 - **Scope.** Win32 is enormous. We are not promising compatibility with arbitrary software, anti-cheat, DRM-protected applications or anything that needs Windows kernel drivers.
 - **Overlap with existing work.** Wine and Proton are mature and far ahead in API coverage. This project is an experiment in a different architecture, not a claim that those projects are unnecessary. If a Wine-derived LGPL component turns out to be the right way to implement parts of the API layer, that is an open question for the maintainers and the community, and it needs a licensing review first.
 - **Legality.** This is a clean-room effort: no Microsoft source code, no leaked code, no copied proprietary binaries. Contributors must not submit code derived from leaked or proprietary Windows sources. (License: to be chosen by the maintainers; a kernel module must be GPL-compatible to use most kernel symbols.)
