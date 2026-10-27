@@ -201,10 +201,11 @@ __attribute__((ms_abi)) BOOL IsChild(HANDLE parent, HANDLE child)
 	if (!pe_window_lookup(parent, false))
 		return 0;
 	struct pe_window *w = pe_window_lookup(child, false);
-	for (unsigned depth = 0; w && depth < 128 && (w->style & 0x40000000u);
+	for (unsigned depth = 0; w && depth < 128 && ((w->style & 0x40000000u) || w->reparented);
 	     depth++) {
 		if (w->parent == parent)
 			return 1;
+		if (!w->parent) break;
 		w = pe_window_lookup(w->parent, false);
 	}
 	return 0;

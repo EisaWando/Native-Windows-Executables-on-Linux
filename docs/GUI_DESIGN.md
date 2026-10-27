@@ -99,6 +99,19 @@ screen coordinates, child positions are relative to their parent's client
 origin, and the 24-pixel menu strip shifts the client origin down. The helper
 reports X11 root coordinates with motion and button events; SetCursorPos only
 changes the logical position and does not yet warp the native X11 pointer.
-Hit testing follows the current newest-first window list. The layer does not
-currently maintain independent z-order changes from SetWindowPos, and mirrored
-WS_EX_LAYOUTRTL coordinate transforms are not implemented.
+Hit testing follows the current window z-order. Mirrored WS_EX_LAYOUTRTL
+coordinate transforms are not implemented.
+
+Window ordering uses the shared top-to-bottom window list, with topmost and
+non-topmost sibling groups. Reparenting keeps the stored x/y and does not alter
+WS_CHILD or WS_POPUP. WM_PARENTNOTIFY is sent for child creation and destruction;
+no extra reparent notification is synthesized. Enum callbacks use a snapshot
+and run outside the bridge lock. Deferred positions are applied in order at
+EndDeferWindowPos; their notifications and native updates are sequential rather
+than one atomic native display transaction. The helper applies X11 raise/lower
+and sibling stacking requests, but persistent topmost policy depends on the X11
+window manager. The existing headless child-control drawing limitation remains.
+The current window metadata still shares one field for a popup owner and a
+parent; reparenting an owned popup can therefore return its former owner where
+Windows would distinguish the desktop parent. Owner-chain propagation of
+WS_EX_TOPMOST is also not modeled. These cases require a separate owner field.

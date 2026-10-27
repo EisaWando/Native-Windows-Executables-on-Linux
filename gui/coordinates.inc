@@ -6,7 +6,8 @@ static bool pe_coord_origin(struct pe_window *w,struct pe_point *out)
     for (unsigned depth=0; w; depth++) {
         if (depth>=128) { SetLastError(1400); return false; }
         x+=w->x; y+=w->y+pe_window_menu_height(w);
-        if (!(w->style&0x40000000u) || !w->parent) break;
+        if (!(w->style&0x40000000u) && !w->reparented) break;
+        if (!w->parent) break;
         w=pe_window_lookup(w->parent,false);
         if (!w) return false;
     }
@@ -80,7 +81,7 @@ static HANDLE pe_coord_child(HANDLE parent,struct pe_point p,unsigned flags,bool
         HANDLE candidate=NULL; unsigned builtin=0; int64_t sx=(int64_t)origin.x+p.x,sy=(int64_t)origin.y+p.y;
         {
             PE_STATE_GUARD;
-            if (!w->dead && w->parent==parent && (w->style&0x40000000u) &&
+            if (!w->dead && w->parent==parent && ((w->style&0x40000000u) || w->reparented) &&
                 (!(flags&1) || w->visible) && (!(flags&2) || !(w->style&0x08000000u)) &&
                 (!(flags&4) || !(w->exstyle&0x20u)) &&
                 pe_coord_inside(p.x,p.y,w->x,w->y,w->width,w->height)) {
@@ -108,7 +109,7 @@ __attribute__((ms_abi)) HANDLE WindowFromPoint(uint64_t packed)
         struct pe_point origin;
         {
             PE_STATE_GUARD;
-            if (w->dead || !w->visible || (w->style&0x40000000u) || (w->style&0x08000000u)) continue;
+            if (w->dead || !w->visible || (((w->style&0x40000000u) || w->reparented) && w->parent) || (w->style&0x08000000u)) continue;
             if (!pe_coord_origin(w,&origin)) continue;
             if (!pe_coord_inside(p.x,p.y,origin.x,origin.y-pe_window_menu_height(w),w->width,w->height)) continue;
         }

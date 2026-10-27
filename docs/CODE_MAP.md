@@ -44,6 +44,7 @@
 | `gui/send.inc` | Synchronous cross-thread SendMessage, PostMessage, reply/cancel machinery | `pe_ui_send`, `pe_ui_deliver`, `pe_call_complete`, `pe_ui_cancel_window` |
 | `gui/subclass.inc` | SetWindowSubclass / GetWindowSubclass / RemoveWindowSubclass — subclass chain dispatch | `SetWindowSubclass`, `GetWindowSubclass`, `RemoveWindowSubclass`, `pe_subclass_dispatch`, `pe_subclass_next` |
 | `gui/theme.inc` | UxTheme stubs: SetWindowTheme, OpenThemeData, GetThemeColor, DrawThemeBackground | `SetWindowTheme`, `OpenThemeData`, `OpenThemeDataEx`, `GetWindowTheme`, `CloseThemeData` |
+| `gui/window_tree.inc` | Parent and ancestor queries, sibling z-order, window enumeration, lookup, deferred positioning | `SetParent`, `GetWindow`, `EnumChildWindows`, `SetWindowPos`, `EndDeferWindowPos` |
 | `gui/window_state.inc` | SetWindowPos, MoveWindow, IsWindowEnabled, GetFocus, ShowWindow, IsWindowVisible, GetWindowRect | `SetWindowPos`, `MoveWindow`, `IsWindowEnabled`, `GetFocus`, `ShowWindow`, `GetWindowRect` |
 | `tests/calendar.c` | Tests GetDateFormatW calendar/date edge cases | `mainCRTStartup` |
 | `tests/caret.c` | Tests CreateCaret/ShowCaret/HideCaret from two threads | `mainCRTStartup`, `other_thread` |
@@ -89,4 +90,5 @@
 | `tests/trust.c` | Tests WinVerifyTrust returns expected error | `mainCRTStartup` |
 | `tests/utf.c` | Tests MultiByteToWideChar / WideCharToMultiByte UTF-8/UTF-16 | `mainCRTStartup` |
 | `tests/window_demo.c` | Simple window creation/message-loop demo (GUI display test) | `mainCRTStartup`, `window_proc` |
+| `tests/window_tree.c` | Reparenting, enumeration, z-order, hit testing and deferred movement | `mainCRTStartup`, `visit` |
 | `tests/windows.c` | Tests CreateWindow, subclassing, hidden windows, SetProp/GetProp | `mainCRTStartup`, `test_hidden_windows`, `test_subclass`, `proc` |

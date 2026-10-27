@@ -3496,6 +3496,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/dc_saved.inc"
 #include "gui/dialog_template.inc"
 #include "gui/coordinates.inc"
+#include "gui/window_tree.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
 
@@ -3633,6 +3634,21 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "ChildWindowFromPoint")) return ChildWindowFromPoint;
     if (!by_ordinal && ascii_equal_ci(function, "ChildWindowFromPointEx")) return ChildWindowFromPointEx;
     if (!by_ordinal && ascii_equal_ci(function, "RealChildWindowFromPoint")) return RealChildWindowFromPoint;
+    if (!by_ordinal && ascii_equal_ci(function, "SetParent")) return SetParent;
+    if (!by_ordinal && ascii_equal_ci(function, "GetAncestor")) return GetAncestor;
+    if (!by_ordinal && ascii_equal_ci(function, "GetTopWindow")) return GetTopWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindow")) return GetWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "EnumChildWindows")) return EnumChildWindows;
+    if (!by_ordinal && ascii_equal_ci(function, "EnumWindows")) return EnumWindows;
+    if (!by_ordinal && ascii_equal_ci(function, "EnumThreadWindows")) return EnumThreadWindows;
+    if (!by_ordinal && ascii_equal_ci(function, "FindWindowW")) return FindWindowW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindWindowA")) return FindWindowA;
+    if (!by_ordinal && ascii_equal_ci(function, "FindWindowExW")) return FindWindowExW;
+    if (!by_ordinal && ascii_equal_ci(function, "FindWindowExA")) return FindWindowExA;
+    if (!by_ordinal && ascii_equal_ci(function, "BringWindowToTop")) return BringWindowToTop;
+    if (!by_ordinal && ascii_equal_ci(function, "BeginDeferWindowPos")) return BeginDeferWindowPos;
+    if (!by_ordinal && ascii_equal_ci(function, "DeferWindowPos")) return DeferWindowPos;
+    if (!by_ordinal && ascii_equal_ci(function, "EndDeferWindowPos")) return EndDeferWindowPos;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgCtrlID")) return GetDlgCtrlID;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgItem")) return GetDlgItem;
     if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageW")) return SendDlgItemMessageW;

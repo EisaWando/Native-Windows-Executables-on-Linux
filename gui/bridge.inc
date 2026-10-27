@@ -80,7 +80,7 @@ struct pe_window {
 	DWORD style, exstyle;
 	int x, y, width, height;
 	intptr_t userdata;
-	bool visible, invalid, destroying, dead, erase, realized, menu_dirty;
+	bool visible, invalid, destroying, dead, erase, realized, menu_dirty, reparented;
 	uint16_t *theme_app, *theme_ids;
 	uint16_t title[256];
 	unsigned char extra[4096];
@@ -88,6 +88,7 @@ struct pe_window {
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
 static bool pe_coord_origin(struct pe_window *,struct pe_point *);
+static bool pe_tree_reorder(struct pe_window *,HANDLE);
 static void pe_scroll_clear(struct pe_window *);
 static void pe_invalidate_full(struct pe_window *);
 __attribute__((ms_abi)) BOOL InvalidateRect(HANDLE, const struct pe_rect *, BOOL);
@@ -310,6 +311,7 @@ __attribute__((ms_abi)) void PostQuitMessage(int code)
 		pe_ui_post(u, NULL, 0x12, (uint32_t)code, 0, 0);
 }
 __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd);
+__attribute__((ms_abi)) BOOL IsWindow(HANDLE hwnd);
 __attribute__((ms_abi)) HANDLE BeginPaint(HANDLE, struct pe_paint *);
 __attribute__((ms_abi)) BOOL EndPaint(HANDLE, const struct pe_paint *);
 __attribute__((ms_abi)) int FillRect(HANDLE, const struct pe_rect *, HANDLE);
@@ -456,6 +458,7 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		}
 		w->next = pe_windows;
 		pe_windows = w;
+		pe_tree_reorder(w,NULL);
 	}
 	if (!w->menu && !(w->style & 0x40000000u) && w->cls->data.menu_name) {
 		w->menu = LoadMenuW(instance, w->cls->data.menu_name);
@@ -508,6 +511,15 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 	}
 	if (w->dead)
 		return NULL;
+    if ((w->style & 0x40000000u) && !(w->exstyle & 4) && w->parent) {
+        HANDLE p=w->parent;
+        while (p && IsWindow(p)) {
+            SendMessageW(p,0x210,1|((uintptr_t)(uint16_t)(uintptr_t)w->menu<<16),(intptr_t)w->handle);
+            struct pe_window *ancestor=pe_window_lookup(p,false);
+            p=ancestor && (ancestor->style&0x40000000u) ? ancestor->parent : NULL;
+        }
+        if (w->dead) return NULL;
+    }
 	if (style & 0x10000000u) {
 		SetLastError(0);
 		ShowWindow(w->handle, 1);
@@ -526,6 +538,14 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	if (!w || w->destroying)
 		return 0;
 	w->destroying = true;
+    if ((w->style & 0x40000000u) && !(w->exstyle & 4) && w->parent) {
+        HANDLE p=w->parent;
+        while (p && IsWindow(p)) {
+            SendMessageW(p,0x210,2|((uintptr_t)(uint16_t)(uintptr_t)w->menu<<16),(intptr_t)hwnd);
+            struct pe_window *ancestor=pe_window_lookup(p,false);
+            p=ancestor && (ancestor->style&0x40000000u) ? ancestor->parent : NULL;
+        }
+    }
 	w->proc(hwnd, 2, 0, 0);
 	struct pe_window *first;
 	{
@@ -893,23 +913,16 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 				previous = m;
 				link = &m->next;
 			}
-			if (hwnd != (HANDLE)(intptr_t)-1 && min <= 0xf &&
-			    (!max || max >= 0xf))
-				for (struct pe_window *w = pe_windows; w;
-				     w = w->next)
-					if (!w->dead && w->ui == u &&
-					    w->realized && w->visible &&
-					    w->invalid &&
-					    (!hwnd || w->handle == hwnd)) {
-						*out = (struct pe_msg){
-							.hwnd = w->handle,
-							.message = 0xf,
-							.time = GetTickCount(),
-							.x = pe_cursor.x, .y = pe_cursor.y
-						};
-						u->message_x=out->x; u->message_y=out->y; u->message_time=out->time;
-						return 1;
-					}
+            if (hwnd != (HANDLE)(intptr_t)-1 && min <= 0xf && (!max || max >= 0xf)) {
+                struct pe_window *paint=NULL;
+                for (struct pe_window *w=pe_windows;w;w=w->next)
+                    if (!w->dead && w->ui==u && w->realized && w->visible && w->invalid && (!hwnd || w->handle==hwnd)) paint=w;
+                if (paint) {
+                    *out=(struct pe_msg){.hwnd=paint->handle,.message=0xf,.time=GetTickCount(),.x=pe_cursor.x,.y=pe_cursor.y};
+                    u->message_x=out->x;u->message_y=out->y;u->message_time=out->time;
+                    return 1;
+                }
+            }
 		}
 		if (!block && polled)
 			return 2;

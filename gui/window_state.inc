@@ -5,6 +5,7 @@ struct pe_windowpos {
 	DWORD flags;
 };
 _Static_assert(sizeof(struct pe_windowpos) == 40, "WINDOWPOS ABI");
+__attribute__((ms_abi)) HANDLE SetActiveWindow(HANDLE);
 __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 					  int y, int width, int height,
 					  DWORD flags)
@@ -17,6 +18,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 		w->proc(hwnd, 0x46, 0, (intptr_t)&pos);
 	if (w->dead)
 		return 0;
+	if (!(pos.flags & 4) && !pe_tree_reorder(w,pos.after)) return 0;
 	x = pos.flags & 2 ? w->x : pos.x;
 	y = pos.flags & 2 ? w->y : pos.y;
 	width = pos.flags & 1 ? w->width : pos.width;
@@ -40,7 +42,8 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 				       .b = y,
 				       .c = width > 0 ? width : 1,
 				       .d = height > 0 ? height : 1,
-				       .flags = pos.flags };
+				       .flags = pos.flags,
+                       .color = (uint32_t)(uintptr_t)pos.after };
 		if (!pe_ui_rpc(w->ui, &p))
 			return 0;
 	}
@@ -63,6 +66,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 			return 0;
 	} else if (pos.flags & 0x80)
 		ShowWindow(hwnd, 0);
+	if (!(pos.flags & 0x10) && w->visible && !(w->style & 0x40000000u)) SetActiveWindow(hwnd);
 	pos.x = x;
 	pos.y = y;
 	pos.width = width;
@@ -170,7 +174,7 @@ __attribute__((ms_abi)) HANDLE GetParent(HANDLE hwnd)
 {
 	PE_STATE_GUARD;
 	struct pe_window *w = pe_window_lookup(hwnd, false);
-	return w ? w->parent : NULL;
+	return w && ((w->style & 0x40000000u) || (w->style & 0x80000000u) || w->reparented) ? w->parent : NULL;
 }
 __attribute__((ms_abi)) int32_t GetWindowLongW(HANDLE hwnd, int index)
 {

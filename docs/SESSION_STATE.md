@@ -1,11 +1,17 @@
 # Resume state
 
-- Latest batch: coordinates and hit testing (commit 01764a6a6).
-- Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the sandbox, exit 0, 68 PASS; tests/coords.exe PASS, visible tests SKIP.
-- Latest suite and post-commit Notepad++: exit 127, 389 resolved / 231 unimplemented, USER32!SetParent ret=0x14008c9f3.
+- Latest batch: window tree, reparenting and z-order (commit pending post-commit refresh).
+- Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 69 PASS; tests/window_tree.exe PASS; visible tests SKIP.
+- Latest suite Notepad++: exit 127, 400 resolved / 220 unimplemented, USER32!GetSysColorBrush ret=0x14008ea9d; no visible top-level request or new crash observed.
+- Limits: popup owner and parent still share metadata, so SetParent on an owned popup can return the owner instead of the desktop; owner-chain topmost propagation is not implemented. Deferred native updates are sequential, persistent X11 topmost depends on the window manager, and child controls remain headless.
+- Next steps: verify the post-commit Notepad++ stop; separate popup owners from parents and propagate topmost state; implement GetSysColorBrush. Modal dialogs remain a conditional owner-requested batch.
+
+- Previous batch: coordinates and hit testing (commit 01764a6a6).
+- Previous full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the sandbox, exit 0, 68 PASS; tests/coords.exe PASS, visible tests SKIP.
+- Previous suite and post-commit Notepad++: exit 127, 389 resolved / 231 unimplemented, USER32!SetParent ret=0x14008c9f3.
 - Coordinate mapping uses stored parent-client positions and the 24-pixel menu strip; pointer events update the logical cursor and queued-message coordinates. SetCursorPos does not warp X11. Hit testing uses the newest-first window list; explicit z-order changes and RTL mirroring are not implemented.
 - Next steps: conditional modal-dialog batch if the owner quota permits; investigate SetParent; repeat the regression and Notepad++ loop.
-- Uncommitted work: this post-commit SESSION_STATE refresh.
+- Previous post-commit SESSION_STATE refresh was incorporated in the current batch.
 
 - Latest batch: modeless dialog templates and creation (commit a24f76fae). Standard and extended resource/indirect templates use
   bounded guarded reads, a 4096-item limit, and bounded UTF-16 strings.

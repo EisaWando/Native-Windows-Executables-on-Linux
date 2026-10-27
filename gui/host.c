@@ -632,9 +632,17 @@ int main(void)
 				break;
 			case PG_POSITION:
 				p.status = resize_surface(s, p.c, p.d);
-				if (!p.status)
-					XMoveResizeWindow(display, s->window,
-							  p.a, p.b, p.c, p.d);
+				if (!p.status) {
+                    XMoveResizeWindow(display,s->window,p.a,p.b,p.c,p.d);
+                    if (!(p.flags&4)) {
+                        if (p.color==1) XLowerWindow(display,s->window);
+                        else if (p.color==0 || p.color==0xffffffffu || p.color==0xfffffffeu) XRaiseWindow(display,s->window);
+                        else {
+                            struct surface *sibling=lookup(p.color);
+                            if (sibling) { XWindowChanges changes={0}; changes.sibling=sibling->window; changes.stack_mode=Below; XConfigureWindow(display,s->window,CWSibling|CWStackMode,&changes); }
+                        }
+                    }
+                }
 				break;
 			case PG_RESIZE:
 				p.status = resize_surface(s, p.c, p.d);
