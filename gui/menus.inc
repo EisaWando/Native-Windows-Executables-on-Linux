@@ -304,7 +304,7 @@ __attribute__((ms_abi)) BOOL SetMenu(HANDLE hwnd, HANDLE menu)
 	w->menu_dirty = true;
 	if (menu)
 		pe_menu_lookup(menu)->owner = hwnd;
-	w->invalid = true;
+	pe_invalidate_full(w);
 	return 1;
 }
 __attribute__((ms_abi)) unsigned CheckMenuItem(HANDLE h, unsigned id,

@@ -53,7 +53,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 		w->width = width;
 		w->height = height;
 		if (resized) {
-			w->invalid = true;
+			pe_invalidate_full(w);
 			w->erase = true;
 		}
 	}

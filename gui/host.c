@@ -18,6 +18,7 @@
 #include <stdbool.h>
 struct native_menu_entry;
 struct surface {
+	Region clip;
 	struct native_menu_entry *menu_items;
 	int menu_height;
 	bool painting_menu;
@@ -96,7 +97,8 @@ static uint32_t rgb_pixel(XImage *im, int x, int y)
 static void pixel(struct surface *s, int x, int y, uint32_t rgb)
 {
 	if (x >= 0 && y >= (s->painting_menu ? 0 : s->menu_height) &&
-	    x < s->width && y < s->height)
+	    x < s->width && y < s->height &&
+	    (s->painting_menu || !s->clip || XPointInRegion(s->clip, x, y)))
 		XPutPixel(s->image, x, y, native_pixel(s->image, rgb));
 }
 static int resize_surface(struct surface *s, int width, int height)
@@ -143,7 +145,8 @@ static void fill(struct surface *s, int x, int y, int right, int bottom,
 	unsigned long p = native_pixel(s->image, rgb);
 	for (int row = y; row < bottom; row++)
 		for (int col = x; col < right; col++)
-			XPutPixel(s->image, col, row, p);
+			if (s->painting_menu || !s->clip || XPointInRegion(s->clip,col,row))
+				XPutPixel(s->image, col, row, p);
 }
 static int font(struct surface *s, const char *name, int height)
 {
@@ -472,7 +475,8 @@ int main(void)
 				s->id = p.id;
 				p.status = resize_surface(s, p.c, p.d);
 				if (p.status) {
-					free(s);
+					if (s->clip) XDestroyRegion(s->clip);
+				free(s);
 					break;
 				}
 				s->window = XCreateSimpleWindow(
@@ -517,6 +521,7 @@ int main(void)
 				XDestroyImage(s->image);
 				if (s->face)
 					FT_Done_Face(s->face);
+				if (s->clip) XDestroyRegion(s->clip);
 				free(s);
 				break;
 			}
@@ -529,6 +534,18 @@ int main(void)
 			case PG_TITLE:
 				XStoreName(display, s->window, p.text);
 				break;
+			case PG_CLIP:
+                if (p.flags != 2) {
+                    if (s->clip) XDestroyRegion(s->clip);
+                    s->clip = p.flags ? XCreateRegion() : NULL;
+                    if (p.flags && !s->clip) p.status = 8;
+                } else if (!s->clip) p.status = 87;
+                else if (p.a < 0 || p.b < 0 || p.c > PG_MAX_DIM || p.d > PG_MAX_DIM || p.c < p.a || p.d < p.b) p.status = 87;
+                else {
+                    XRectangle r = { p.a, p.b, p.c-p.a, p.d-p.b };
+                    XUnionRectWithRegion(&r, s->clip, s->clip);
+                }
+                break;
 			case PG_FILL:
 				fill(s, p.a, p.b, p.c, p.d, p.color);
 				break;

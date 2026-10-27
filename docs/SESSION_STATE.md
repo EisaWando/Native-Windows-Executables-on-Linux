@@ -1,23 +1,31 @@
 # Resume state
 
-- Current commit: 20592f2b9 (GetTextExtentExPointW/A); SaveDC commit: c95510968; bitmap commit: c72145af0.
+- Current batch: update-region / paint-cycle implementation (commit recorded in post-commit refresh).
 - Last green: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox,
-  exit 0. text_extents, bitmaps, dc_saved, scroll_state, commctl_ordinals, ImageList and all
-  other hard fixtures, 20/20 thread stress and diagnostics PASS. Visible tests SKIP.
-- Notepad++: exit 127, 346 resolved / 274 unimplemented;
-  USER32!GetUpdateRgn ret=0x140228ac9, rcx=0x5008036c, rdx=0x500c0468, r8=0, r9=0.
-  No visible main-window request, new crash/hang or PE exit 126.
-- Text extent implementation:
-  1. Real measurement for GetTextExtentExPointW and GetTextExtentExPointA via native helper FreeType backend.
-  2. Character advance width caching (ASCII / 256-entry array) for fast repeated character queries by Scintilla.
-  3. Precise cumulative extent tracking (alpDx) and maximum extent fitting (lpnFit) matching Win32 GDI semantics.
-- Tests: tests/text_extents.c (GetTextExtentPoint32W parity, lpnFit bounds, empty string, NULL pointers, A variant) passes.
-- Uncommitted work: none.
-- Next 3 steps: implement GetUpdateRgn and related window invalidation/update region shims;
-  run full regression and verify Notepad++ progress; stop at visible window request.
+  exit 0, 64 PASS lines. update_rgn and every existing hard fixture PASS;
+  20/20 thread stress and intentional crash/exception diagnostics PASS. Display tests SKIP.
+- Notepad++: suite exit 127; USER32!IsClipboardFormatAvailable,
+  ret=0x14022ef68, rcx=13 (CF_UNICODETEXT). Import counts to be captured after commit.
+  No PE exit 126, new crash/hang, or visible main-window request observed.
+- Implemented exact mmap-backed disjoint rectangle geometry in existing HRGN objects;
+  client-clipped update union/subtraction, GetUpdateRgn/GetUpdateRect, InvalidateRgn,
+  ValidateRgn/Rect, RedrawWindow requested flags and child coordinate translation,
+  ExcludeUpdateRgn, and empty-update suppression in UpdateWindow.
+- BeginPaint transfers the update region to its DC, reports its bounding rcPaint,
+  consumes pending erasure and sets fErase from WM_ERASEBKGND's result. EndPaint
+  preserves invalidations made during painting. Callbacks run outside the state lock.
+- DC clipping retains disjoint geometry through SaveDC/RestoreDC; software blits
+  honor it. Native helper PG_CLIP applies rectangle sets with menu offset to drawing.
+  Native clipping was built but not visually exercised (display tests SKIP).
+- Scope limits: RDW_INTERNALPAINT/NOINTERNALPAINT/FRAME/NOFRAME remain unsupported
+  (error 50); desktop NULL-HWND RedrawWindow is not implemented. Existing non-MM_TEXT
+  mapping and complete child/sibling visibility clipping remain future work.
+- Bridge budget: 408952 / 1048576 bytes (suite check); region arrays allocate with mmap.
+- Uncommitted work: post-commit SESSION_STATE refresh only once committed.
+- Next 3 steps: inspect clipboard call requirements; implement clipboard state with
+  explicit ownership/format semantics and a fixture; run suite and resume Notepad++
+  only when the owner authorizes the next batch.
 
-STOPPED after text extents batch; wait for owner to continue. No sudo/kernel changes,
-reload or push. Stop on PE exit 126, new crash/hang, visible main-window request,
-or need for dialog templates/unwinding/kernel changes. Helper startup requires
-outside-sandbox execution.
-
+STOPPED after the single requested paint-cycle batch. No sudo/kernel changes or push.
+Stop on PE exit 126, new crash/hang, first visible main-window request, or need for
+kernel/dialog-template/unwinding work. Native helper tests require outside-sandbox execution.

@@ -133,7 +133,7 @@ __attribute__((ms_abi)) int SetScrollInfo(HANDLE hwnd, int bar,
 		pe_scroll_visible(w, bar, needed || (info->mask & 8));
 	}
 	if (redraw)
-		w->invalid = true;
+		pe_invalidate_full(w);
 	return b->pos;
 }
 __attribute__((ms_abi)) int GetScrollPos(HANDLE hwnd, int bar)
@@ -159,7 +159,7 @@ __attribute__((ms_abi)) int SetScrollPos(HANDLE hwnd, int bar, int pos,
 	b->pos = pos;
 	pe_scroll_clamp(b);
 	if (redraw)
-		w->invalid = true;
+		pe_invalidate_full(w);
 	return old;
 }
 __attribute__((ms_abi)) BOOL GetScrollRange(HANDLE hwnd, int bar, int *min,
@@ -199,7 +199,7 @@ __attribute__((ms_abi)) BOOL SetScrollRange(HANDLE hwnd, int bar, int min,
 	pe_scroll_clamp(b);
 	pe_scroll_visible(w, bar, min != max);
 	if (redraw)
-		w->invalid = true;
+		pe_invalidate_full(w);
 	return 1;
 }
 __attribute__((ms_abi)) BOOL ShowScrollBar(HANDLE hwnd, int bar, BOOL show)
@@ -221,7 +221,7 @@ __attribute__((ms_abi)) BOOL ShowScrollBar(HANDLE hwnd, int bar, BOOL show)
 		pe_scroll_visible(w, 1, show);
 	} else
 		pe_scroll_visible(w, bar, show);
-	w->invalid = true;
+	pe_invalidate_full(w);
 	return 1;
 }
 __attribute__((ms_abi)) BOOL EnableScrollBar(HANDLE hwnd, unsigned bar,
@@ -247,6 +247,6 @@ __attribute__((ms_abi)) BOOL EnableScrollBar(HANDLE hwnd, unsigned bar,
 		}
 	}
 	if (changed)
-		w->invalid = true;
+		pe_invalidate_full(w);
 	return changed;
 }

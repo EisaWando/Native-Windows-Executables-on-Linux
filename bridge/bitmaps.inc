@@ -90,6 +90,7 @@ BOOL PatBlt(HANDLE dc, int x, int y, int w, int h, DWORD rop)
     int y2 = y + h; if (y2 > dst->height) y2 = dst->height;
     for (int py = y1; py < y2; py++)
         for (int px = x1; px < x2; px++) {
+            if (d->clip_active && !pe_region_contains(&d->region, px, py)) continue;
             uint32_t dv = pe_raster_get(dst, px, py);
             pe_raster_set(dst, px, py, pe_rop(dv, dv, pat, rop));
         }
@@ -125,6 +126,7 @@ BOOL BitBlt(HANDLE hdst, int dx, int dy, int w, int h,
     int y2 = dy + h; if (y2 > dst->height) y2 = dst->height;
     for (int py = y1; py < y2; py++)
         for (int px = x1; px < x2; px++) {
+            if (d->clip_active && !pe_region_contains(&d->region, px, py)) continue;
             uint32_t dv = pe_raster_get(dst, px, py);
             uint32_t sv = dv;
             if (src) {
@@ -167,6 +169,7 @@ BOOL StretchBlt(HANDLE hdst, int dx, int dy, int dw, int dh,
     int y2 = dy + dh; if (y2 > dst->height) y2 = dst->height;
     for (int py = y1; py < y2; py++)
         for (int px = x1; px < x2; px++) {
+            if (d->clip_active && !pe_region_contains(&d->region, px, py)) continue;
             uint32_t dv = pe_raster_get(dst, px, py);
             uint32_t sv = dv;
             if (src && sw > 0 && sh > 0) {

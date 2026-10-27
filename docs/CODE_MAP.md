@@ -17,6 +17,9 @@
 | `bridge/security.inc` | SID helpers: IsValidSid, AllocateAndInitializeSid, EqualSid, token/privilege stubs, OpenProcessToken | `IsValidSid`, `AllocateAndInitializeSid`, `FreeSid`, `EqualSid`, `CopySid`, `GetSidSubAuthority`, `OpenProcessToken`, `LookupPrivilegeValueW` |
 | `bridge/trust.inc` | WinVerifyTrust stub — always returns `TRUST_E_NOSIGNATURE` | `WinVerifyTrust` |
 | `bridge/gdi_enum.inc` | Minimal EnumFontFamiliesExW stub (superseded by `gui/enum_fonts.inc` in GUI builds) | `EnumFontFamiliesExW` |
+| `gui/region_set.inc` | Growable disjoint rectangle sets; transactional union/intersection/subtraction, bounds and point containment | `pe_region_combine`, `pe_region_cut`, `pe_region_box` |
+| `gui/update_region.inc` | Exact client update regions, erase/paint cycles, child redraw propagation and DC exclusion | `GetUpdateRgn`, `GetUpdateRect`, `InvalidateRgn`, `ValidateRgn`, `RedrawWindow`, `ExcludeUpdateRgn`, `BeginPaint`, `EndPaint` |
+| `tests/update_rgn.c` | Empty/simple/complex update regions, partial validation, erase callbacks, children, DC clipping and invalid handles | `mainCRTStartup`, `proc` |
 | `gui/bridge.inc` | Core GUI data structures (HWND/HDC object tables, message loop, pe_window/pe_dc, RegisterClass, CreateWindow, DestroyWindow, message pump) | `pe_window_create`, `pe_dc_get`, `RegisterClassExW`, `CreateWindowExW`, `DestroyWindow`, `GetMessageW`, `DispatchMessageW` |
 | `gui/caret.inc` | Text-insertion caret: creation, show/hide, blink timer | `GetCaretBlinkTime`, `SetCaretBlinkTime`, `CreateCaret`, `DestroyCaret`, `ShowCaret`, `HideCaret` |
 | `gui/controls.inc` | Built-in window class registration (BUTTON, EDIT, LISTBOX, etc.) and InitCommonControls | `InitCommonControlsEx`, `InitCommonControls`, `pe_builtin_class`, `pe_control_proc` |

@@ -1335,7 +1335,10 @@ struct pe_bitmap { int32_t type, width, height, width_bytes; uint16_t planes, bp
 struct pe_raster;struct pe_imagelist;
 struct pe_window;
 struct pe_menu;struct pe_accel_table;
+#include "gui/region_set.inc"
 struct pe_gui_object {
+    struct pe_region region; /* HRGN geometry or explicit DC clip. */
+    bool clip_active;
     struct pe_raster *raster;struct pe_imagelist *imagelist;
     struct pe_window *window;
     struct pe_menu *menu;struct pe_accel_table *accelerator;
@@ -1409,7 +1412,7 @@ static struct pe_gui_object *pe_gui_new(unsigned type)
         if (!pe_gui_grow()) return NULL;
     }
 }
-static void pe_gui_drop(struct pe_gui_object *o) { o->type = 0; pe_gui_next = o->slot; }
+static void pe_gui_drop(struct pe_gui_object *o) { pe_region_clear(&o->region); o->type = 0; pe_gui_next = o->slot; }
 static void pe_default_font(struct pe_logfont *font)
 {
     memset(font, 0, sizeof(*font)); font->height = -12; font->weight = 400; font->charset = 1;
@@ -3485,10 +3488,21 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/date_format.inc"
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
+#include "gui/update_region.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRgn")) return GetUpdateRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRect")) return GetUpdateRect;
+    if (!by_ordinal && ascii_equal_ci(function, "InvalidateRgn")) return InvalidateRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "ValidateRgn")) return ValidateRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "RedrawWindow")) return RedrawWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "ExcludeUpdateRgn")) return ExcludeUpdateRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "CombineRgn")) return CombineRgn;
+    if (!by_ordinal && ascii_equal_ci(function, "GetRgnBox")) return GetRgnBox;
+    if (!by_ordinal && ascii_equal_ci(function, "PtInRegion")) return PtInRegion;
+    if (!by_ordinal && ascii_equal_ci(function, "PtVisible")) return PtVisible;
     if (!by_ordinal && ascii_equal_ci(function, "GetScrollInfo")) return GetScrollInfo;
     if (!by_ordinal && ascii_equal_ci(function, "SetScrollInfo")) return SetScrollInfo;
     if (!by_ordinal && ascii_equal_ci(function, "GetScrollPos")) return GetScrollPos;

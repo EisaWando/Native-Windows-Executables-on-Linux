@@ -1,3 +1,4 @@
+static bool pe_dc_clip_init(struct pe_gui_object *);
 /* bridge/dc_saved.inc — device context save/restore, mapping mode, viewport/window origin and clipping regions */
 
 struct pe_dc_extra {
@@ -22,6 +23,8 @@ static struct pe_dc_extra *pe_dc_extra_get(unsigned slot)
 }
 
 struct pe_saved_dc {
+    struct pe_region region;
+    bool clip_active;
     HANDLE dc;
     int id;
     HANDLE pen, brush, font, bitmap, palette;
@@ -46,6 +49,10 @@ int SaveDC(HANDLE dc)
     if (!d) return 0;
     struct pe_saved_dc *s = (struct pe_saved_dc *)pe_raw_map(sizeof(*s));
     if (!s) { SetLastError(8); return 0; }
+    if (!pe_region_copy(&s->region, &d->region)) {
+        raw_syscall3(SYS_munmap, (long)s, sizeof(*s), 0); return 0;
+    }
+    s->clip_active = d->clip_active;
     s->dc = dc;
     s->id = ++pe_save_dc_id;
     s->pen = d->u.dc.pen;
@@ -106,6 +113,8 @@ BOOL RestoreDC(HANDLE dc, int nSavedDC)
     }
     if (!target) { SetLastError(87); return 0; }
 
+    if (!pe_region_copy(&d->region, &target->region)) return 0;
+    d->clip_active = target->clip_active;
     HANDLE cur_objs[] = { d->u.dc.pen, d->u.dc.brush, d->u.dc.font, d->u.dc.bitmap, d->u.dc.palette };
     for (int i = 0; i < 5; i++) {
         struct pe_gui_object *o = pe_gui_lookup(cur_objs[i], 0);
@@ -147,6 +156,7 @@ BOOL RestoreDC(HANDLE dc, int nSavedDC)
                     if (o) o->selected--;
                 }
             }
+            pe_region_clear(&cur->region);
             raw_syscall3(SYS_munmap, (long)cur, sizeof(*cur), 0);
             if (cur == target) break;
         } else {
@@ -267,6 +277,7 @@ int GetClipBox(HANDLE dc, struct pe_rect *rc)
     if (!rc) { SetLastError(87); return 0; }
     struct pe_gui_object *d = pe_dc_lookup(dc);
     if (!d) return 0;
+    if (d->clip_active) return pe_region_box(&d->region, rc);
     struct pe_dc_extra *ex = pe_dc_extra_get(d->slot);
     if (ex && ex->has_clip) {
         rc->left = ex->clip_left;
@@ -300,90 +311,64 @@ int IntersectClipRect(HANDLE dc, int left, int top, int right, int bottom)
 {
     PE_STATE_GUARD;
     struct pe_gui_object *d = pe_dc_lookup(dc);
-    if (!d) return 0;
-    struct pe_dc_extra *ex = pe_dc_extra_get(d->slot);
-    if (!ex) return 0;
-    if (!ex->has_clip) {
-        struct pe_rect rc;
-        GetClipBox(dc, &rc);
-        ex->clip_left = rc.left;
-        ex->clip_top = rc.top;
-        ex->clip_right = rc.right;
-        ex->clip_bottom = rc.bottom;
-        ex->has_clip = true;
-    }
-    if (left > ex->clip_left) ex->clip_left = left;
-    if (top > ex->clip_top) ex->clip_top = top;
-    if (right < ex->clip_right) ex->clip_right = right;
-    if (bottom < ex->clip_bottom) ex->clip_bottom = bottom;
-    if (ex->clip_left >= ex->clip_right || ex->clip_top >= ex->clip_bottom)
-        return 1;
-    return 2;
+    if (!d || !pe_dc_clip_init(d)) return 0;
+    struct pe_rect box = {left,top,right,bottom};
+    struct pe_region r = { &box, pe_rect_nonempty(box) ? 1 : 0, 0 };
+    if (!pe_region_combine(&d->region, &d->region, &r, 1)) return 0;
+    return pe_region_box(&d->region, &box);
 }
-
 __attribute__((ms_abi))
 int ExcludeClipRect(HANDLE dc, int left, int top, int right, int bottom)
 {
     PE_STATE_GUARD;
-    (void)left; (void)top; (void)right; (void)bottom;
     struct pe_gui_object *d = pe_dc_lookup(dc);
-    if (!d) return 0;
-    return 2;
+    if (!d || !pe_dc_clip_init(d)) return 0;
+    struct pe_rect box = {left,top,right,bottom};
+    if (!pe_region_cut(&d->region, box)) return 0;
+    return pe_region_box(&d->region, &box);
 }
-
 __attribute__((ms_abi))
 int SelectClipRgn(HANDLE dc, HANDLE rgn)
 {
     PE_STATE_GUARD;
     struct pe_gui_object *d = pe_dc_lookup(dc);
     if (!d) return 0;
-    struct pe_dc_extra *ex = pe_dc_extra_get(d->slot);
-    if (!ex) return 0;
     if (!rgn) {
-        ex->has_clip = false;
+        pe_region_clear(&d->region); d->clip_active = false;
+        struct pe_dc_extra *ex = pe_dc_extra_get(d->slot);
+        if (ex) ex->has_clip = false;
         return 2;
     }
     struct pe_gui_object *r = pe_gui_lookup(rgn, PE_GDI_REGION);
-    if (r) {
-        ex->clip_left = r->u.rect[0];
-        ex->clip_top = r->u.rect[1];
-        ex->clip_right = r->u.rect[2];
-        ex->clip_bottom = r->u.rect[3];
-        ex->has_clip = true;
-        return 2;
-    }
-    return 2;
+    if (!r || !pe_region_copy(&d->region, &r->region)) return 0;
+    d->clip_active = true;
+    struct pe_rect box;
+    return pe_region_box(&d->region, &box);
 }
-
 __attribute__((ms_abi))
 HANDLE CreateRectRgn(int left, int top, int right, int bottom)
 {
     PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_new(PE_GDI_REGION);
     if (!o) return NULL;
-    o->u.rect[0] = left;
-    o->u.rect[1] = top;
-    o->u.rect[2] = right;
-    o->u.rect[3] = bottom;
+    struct pe_rect r = {left < right ? left : right, top < bottom ? top : bottom,
+                        left < right ? right : left, top < bottom ? bottom : top};
+    if (!pe_region_rect(&o->region, r)) { pe_gui_drop(o); return NULL; }
     return pe_gui_handle(o);
 }
-
 __attribute__((ms_abi))
 HANDLE CreateRectRgnIndirect(const struct pe_rect *rc)
 {
     if (!rc) { SetLastError(87); return NULL; }
     return CreateRectRgn(rc->left, rc->top, rc->right, rc->bottom);
 }
-
 __attribute__((ms_abi))
 BOOL SetRectRgn(HANDLE rgn, int left, int top, int right, int bottom)
 {
     PE_STATE_GUARD;
     struct pe_gui_object *o = pe_gui_lookup(rgn, PE_GDI_REGION);
     if (!o) return 0;
-    o->u.rect[0] = left;
-    o->u.rect[1] = top;
-    o->u.rect[2] = right;
-    o->u.rect[3] = bottom;
-    return 1;
+    return pe_region_rect(&o->region, (struct pe_rect){
+        left < right ? left : right, top < bottom ? top : bottom,
+        left < right ? right : left, top < bottom ? bottom : top});
 }

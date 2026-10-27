@@ -14,9 +14,6 @@ struct pe_msg {
 	int32_t x, y;
 	DWORD private;
 };
-struct pe_rect {
-	int32_t left, top, right, bottom;
-};
 struct pe_paint {
 	HANDLE dc;
 	BOOL erase;
@@ -62,6 +59,7 @@ struct pe_subclass;
 struct pe_control;
 struct pe_scrollbars;
 struct pe_window {
+	struct pe_region update;
 	struct pe_property *properties;
 	struct pe_control *control;
 	struct pe_scrollbars *scrollbars;
@@ -84,6 +82,10 @@ struct pe_window {
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
 static void pe_scroll_clear(struct pe_window *);
+static void pe_invalidate_full(struct pe_window *);
+__attribute__((ms_abi)) BOOL InvalidateRect(HANDLE, const struct pe_rect *, BOOL);
+__attribute__((ms_abi)) BOOL ValidateRect(HANDLE, const struct pe_rect *);
+__attribute__((ms_abi)) BOOL UpdateWindow(HANDLE);
 static void pe_properties_clear(struct pe_window *);
 static int pe_window_menu_height(struct pe_window *);
 static bool pe_menu_sync(struct pe_window *);
@@ -480,6 +482,7 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
 	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
 	w->theme_app = w->theme_ids = NULL;
+	pe_region_clear(&w->update);
 	pe_scroll_clear(w);
 	pe_properties_clear(w);
 		struct pe_gui_object *o =
@@ -552,6 +555,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	if (w->theme_app) raw_syscall3(SYS_munmap,(long)w->theme_app,(lstrlenW(w->theme_app)+1)*2,0);
 	if (w->theme_ids) raw_syscall3(SYS_munmap,(long)w->theme_ids,(lstrlenW(w->theme_ids)+1)*2,0);
 	w->theme_app = w->theme_ids = NULL;
+	pe_region_clear(&w->update);
 	pe_scroll_clear(w);
 	pe_properties_clear(w);
 	pe_control_clear(w);
@@ -629,7 +633,7 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 		w->visible = visible;
 		w->style = visible ? w->style | 0x10000000u :
 				     w->style & ~0x10000000u;
-		w->invalid |= visible;
+		if (visible) pe_invalidate_full(w);
 		w->erase |= visible;
 	}
 	w->proc(hwnd, 0x18, visible, 0);
@@ -778,32 +782,6 @@ __attribute__((ms_abi)) intptr_t SetWindowLongPtrW(HANDLE hwnd, int index,
 	SetLastError(1413);
 	return 0;
 }
-__attribute__((ms_abi)) BOOL InvalidateRect(HANDLE hwnd,
-					    const struct pe_rect *r, BOOL erase)
-{
-	(void)r;
-
-	PE_STATE_GUARD;
-	struct pe_window *w = pe_window_lookup(hwnd, false);
-	if (!w)
-		return 0;
-	w->invalid = true;
-	w->erase |= erase != 0;
-	return 1;
-}
-__attribute__((ms_abi)) BOOL ValidateRect(HANDLE hwnd, const struct pe_rect *r)
-{
-	if (r) {
-		SetLastError(50);
-		return 0;
-	}
-	PE_STATE_GUARD;
-	struct pe_window *w = pe_window_lookup(hwnd, false);
-	if (!w)
-		return 0;
-	w->invalid = false;
-	return 1;
-}
 static bool pe_ui_pump(struct pe_ui *u, int wait)
 {
 	for (struct pe_window *v = pe_windows; v; v = v->next)
@@ -840,7 +818,7 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 		u->focus = NULL;
 	if (p.a == 0xf) {
 		PE_STATE_GUARD;
-		w->invalid = true;
+		pe_invalidate_full(w);
 		w->erase = true;
 		return true;
 	}
@@ -848,7 +826,7 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 		PE_STATE_GUARD;
 		w->width = p.c;
 		w->height = p.d;
-		w->invalid = true;
+		pe_invalidate_full(w);
 		w->erase = true;
 	}
 	if (p.a == 5)
@@ -953,20 +931,6 @@ __attribute__((ms_abi)) intptr_t DispatchMessageW(const struct pe_msg *m)
 	struct pe_window *w = pe_window_lookup(m->hwnd, true);
 	return w ? w->proc(m->hwnd, m->message, m->wparam, m->lparam) : 0;
 }
-__attribute__((ms_abi)) BOOL UpdateWindow(HANDLE hwnd)
-{
-	struct pe_window *w = pe_window_lookup(hwnd, true);
-	if (!w)
-		return 0;
-	bool invalid;
-	{
-		PE_STATE_GUARD;
-		invalid = w->invalid;
-	}
-	if (invalid && w->visible)
-		w->proc(hwnd, 0xf, 0, 0);
-	return 1;
-}
 __attribute__((ms_abi)) int ReleaseDC(HANDLE hwnd, HANDLE dc)
 {
 	{
@@ -1029,52 +993,26 @@ static BOOL pe_draw(HANDLE dc, struct pg_packet *p)
 	if (p->op == PG_FILL || p->op == PG_LINE)
 		p->d += origin;
 	p->id = (uintptr_t)w->handle;
-	return pe_ui_rpc(w->ui, p);
-}
-__attribute__((ms_abi)) HANDLE BeginPaint(HANDLE hwnd, struct pe_paint *paint)
-{
-	struct pe_window *w = pe_window_lookup(hwnd, true);
-	if (!w || !paint) {
-		SetLastError(87);
-		return NULL;
-	}
-	if (w->paint_dc) {
-		SetLastError(170);
-		return NULL;
-	}
-	memset(paint, 0, sizeof(*paint));
-	paint->dc = GetDC(hwnd);
-	if (!paint->dc)
-		return NULL;
-	bool erase;
-	{
-		PE_STATE_GUARD;
-		w->paint_dc = paint->dc;
-		w->invalid = false;
-		paint->rect = (struct pe_rect){
-			0, 0, w->width, w->height - pe_window_menu_height(w)
-		};
-		erase = w->erase;
-		w->erase = false;
-	}
-	if (erase)
-		paint->erase = !w->proc(hwnd, 0x14, (uintptr_t)paint->dc, 0);
-	if (w->dead) {
-		SetLastError(1400);
-		return NULL;
-	}
-	return paint->dc;
-}
-__attribute__((ms_abi)) BOOL EndPaint(HANDLE hwnd, const struct pe_paint *paint)
-{
-	struct pe_window *w = pe_window_lookup(hwnd, true);
-	if (!w || !paint || !w->paint_dc || paint->dc != w->paint_dc) {
-		SetLastError(87);
-		return 0;
-	}
-	BOOL ok = ReleaseDC(hwnd, w->paint_dc);
-	w->paint_dc = NULL;
-	return ok;
+    struct pe_region clip = {0};
+    bool active;
+    {
+        PE_STATE_GUARD;
+        struct pe_gui_object *d = pe_dc_lookup(dc);
+        if (!d) return 0;
+        active = d->clip_active;
+        if (active && !pe_region_copy(&clip, &d->region)) return 0;
+    }
+    struct pg_packet set = { .op=PG_CLIP, .id=(uintptr_t)w->handle, .flags=active ? 1 : 0 };
+    BOOL ok = pe_ui_rpc(w->ui, &set);
+    for (size_t i=0; ok && i<clip.count; i++) {
+        struct pe_rect r=pe_rect_intersect(clip.rects[i], (struct pe_rect){0,0,w->width,w->height-origin});
+        if (!pe_rect_nonempty(r)) continue;
+        set=(struct pg_packet){.op=PG_CLIP,.id=(uintptr_t)w->handle,.flags=2,
+            .a=r.left,.b=r.top+origin,.c=r.right,.d=r.bottom+origin};
+        ok=pe_ui_rpc(w->ui,&set);
+    }
+    pe_region_clear(&clip);
+    return ok && pe_ui_rpc(w->ui, p);
 }
 __attribute__((ms_abi)) int FillRect(HANDLE dc, const struct pe_rect *r,
 				     HANDLE brush)
@@ -1219,7 +1157,8 @@ __attribute__((ms_abi)) DWORD SetPixel(HANDLE dc, int x, int y, DWORD color)
 			uint32_t argb = 0xff000000u | ((color & 0xff) << 16) |
 					(color & 0xff00u) |
 					((color >> 16) & 0xff);
-			pe_raster_set(r, x, y, argb);
+			if (!d->clip_active || pe_region_contains(&d->region, x, y))
+				pe_raster_set(r, x, y, argb);
 			return color;
 		}
 	}
