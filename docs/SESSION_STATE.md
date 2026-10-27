@@ -1,5 +1,25 @@
 # Resume state
 
+- Latest batch: modeless dialog templates and creation (commit recorded in the
+  post-commit refresh). Standard and extended resource/indirect templates use
+  bounded guarded reads, a 4096-item limit, and bounded UTF-16 strings.
+- Last full regression: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the
+  sandbox, exit 0, 67 PASS; `tests/dialogs.exe` PASS. Visible tests SKIP.
+- Latest suite Notepad++: exit 127, 382 resolved / 238 unimplemented;
+  USER32!ScreenToClient ret=0x140089408. No PE exit 126 or new crash/hang.
+- Dialog-unit base: 8x16 without a template font; a specified font uses its
+  52-letter mean width and text height at 96 DPI. If host measurement fails,
+  the existing implementation falls back to 8x16.
+- Limitations: resource IDs in control titles are currently treated as string
+  IDs, not icon/bitmap resources; a missing string becomes an empty caption.
+  SendDlgItemMessageA converts WM_SETTEXT/WM_GETTEXT only. Custom dialog classes
+  must supply dispatch and 24 extra bytes. Modal dialogs and IsDialogMessage
+  remain unimplemented. The indirect API supplies no true byte length, so the
+  parser cannot identify an object boundary inside otherwise readable memory.
+- Next three steps: review and complete ordinal control-resource handling;
+  implement coordinate conversions (ScreenToClient/ClientToScreen); then resume
+  Notepad++ under the next owner-authorized batch.
+
 - Clipboard follow-up: existing `bridge/clipboard.inc` now synthesizes UTF-8 CF_TEXT/CF_OEMTEXT and UTF-16 CF_UNICODETEXT, tracks the opener thread, reports error 1418 for closed operations, validates global handles through a locked registry, preserves clipboard-owned memory, and posts WM_CLIPBOARDUPDATE to registered listeners.
 - Latest outside-sandbox `/tmp/run.log`: 66 PASS lines, no FAIL, including `tests/clipboard.exe`; visible tests skipped. The process exit status was lost when the session was interrupted after the log completed. The first sandboxed run failed three native font-helper tests; the outside-sandbox retry passed them.
 - Clipboard remains process-local; text synthesis uses UTF-8 for ANSI/OEM. Delayed-rendered text gains synthesized formats only after rendering.
@@ -46,6 +66,5 @@
   3. Owner step: run `./npp.8.9.8.portable.x64/notepad++.exe` on the desktop when
      the bridge reports the visible main-window request, and report the screenshot.
 
-STOPPED at the dialog-template boundary. Per AGENTS.md this area goes to a stronger
-model, so no dialog code was started. No sudo, no kernel change, no push.
+STOPPED after the owner-authorized modeless dialog batch. No sudo, no kernel change, no push.
 Stop again on PE exit 126, a new crash/hang, or the first visible main-window request.

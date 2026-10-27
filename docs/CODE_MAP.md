@@ -25,6 +25,7 @@
 | `gui/caret.inc` | Text-insertion caret: creation, show/hide, blink timer | `GetCaretBlinkTime`, `SetCaretBlinkTime`, `CreateCaret`, `DestroyCaret`, `ShowCaret`, `HideCaret` |
 | `gui/controls.inc` | Built-in window class registration (BUTTON, EDIT, LISTBOX, etc.) and InitCommonControls | `InitCommonControlsEx`, `InitCommonControls`, `pe_builtin_class`, `pe_control_proc` |
 | `gui/dc_state.inc` | Per-DC text/background rendering attributes | `SetTextAlign`, `GetTextAlign`, `GetTextColor`, `GetBkColor`, `GetBkMode`, `SetTextCharacterExtra`, `GetTextCharacterExtra` |
+| `gui/dialog_template.inc` | Guarded standard/extended dialog template parsing, modeless creation and dialog unit mapping | `CreateDialogParamW/A`, `CreateDialogIndirectParamW/A`, `DefDlgProcW/A`, `MapDialogRect` |
 | `gui/dialog_items.inc` | Dialog item helpers: GetDlgItem, SendDlgItemMessage, SetDlgItemText | `GetDlgCtrlID`, `GetDlgItem`, `SendDlgItemMessageW`, `SetDlgItemTextW`, `GetDlgItemTextW` |
 | `gui/drop_targets.inc` | OLE drag-and-drop: RegisterDragDrop, RevokeDragDrop, IDropTarget vtable plumbing | `RegisterDragDrop`, `RevokeDragDrop`, `pe_drop_release`, `pe_drop_window_destroy` |
 | `gui/enum_fonts.inc` | EnumFontFamiliesExW — calls host font-enumeration protocol and invokes FONTENUMPROC callback with real font names | `EnumFontFamiliesExW`, `pe_enum_font_name` |
@@ -53,6 +54,7 @@
 | `tests/date_format.c` | Tests GetDateFormatW/A and GetTimeFormatW/A | `mainCRTStartup`, `equal`, `equala` |
 | `tests/dc_state.c` | Tests DC text-attribute getters/setters | `mainCRTStartup` |
 | `tests/dc_saved.c` | Tests SaveDC/RestoreDC, ViewportOrg, WindowOrg, MapMode, ClipBox, ClipRect, Regions | `mainCRTStartup`, `failed` |
+| `tests/dialogs.c` | Resource and in-memory modeless dialogs, protected-page truncation and corrupt-template checks | `mainCRTStartup`, `proc` |
 | `tests/dialog_items.c` | Tests GetDlgItem/SetDlgItemTextW | `mainCRTStartup` |
 | `tests/directories.c` | Tests SetCurrentDirectory, CreateDirectory, GetFullPathName | `mainCRTStartup`, `same` |
 | `tests/drop_targets.c` | Tests RegisterDragDrop/RevokeDragDrop with a dummy IDropTarget | `mainCRTStartup`, `allocator`, `query`, `add_ref` |

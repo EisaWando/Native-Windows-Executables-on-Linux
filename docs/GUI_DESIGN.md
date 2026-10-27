@@ -73,3 +73,23 @@ without an X display. The helper initializes FreeType on startup and connects
 X11 only for PG_CREATE; polling without a surface stays display-independent.
 Measurements use the same simple glyph advances as rendering, not complex text
 shaping. The full visible suite passed after this change (2026-10-25).
+
+Modeless dialog templates use the exact RT_DIALOG resource size, or guarded
+reads capped at 1 MiB for an indirect template. The latter API supplies no
+allocation length, so readable memory beyond the caller's intended object
+cannot be distinguished from template bytes. Item count is capped at 4096 and
+strings at 1024 UTF-16 units. Indirect reads check page permissions before the
+existing guarded copy.
+
+Dialog units use the requested font's measured 52-letter mean width and text
+height at 96 DPI. Templates without a font use fixed base units of 8 by 16;
+the same fallback is used if the font helper cannot measure the requested font.
+Modal dialogs, the modal loop, and IsDialogMessage remain unimplemented.
+
+Current limitations: an ordinal control title is looked up as a string-table
+ID; icon/bitmap ordinal titles are not yet loaded into static controls. If
+that string is absent, the current implementation creates an empty caption.
+SendDlgItemMessageA converts WM_SETTEXT and WM_GETTEXT; other messages are
+forwarded without message-specific ANSI conversion. The dialog default proc
+inherits the existing limited DefWindowProc behavior. Custom dialog window
+classes must provide suitable dialog-procedure dispatch and 24 extra bytes.

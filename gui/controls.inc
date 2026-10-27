@@ -27,17 +27,17 @@ static struct pe_gui_class *pe_builtin_class(HANDLE instance,
 		"Button",	    "Static",	       "Edit",
 		"ListBox",	    "ComboBox",	       "ToolbarWindow32",
 		"ReBarWindow32",    "SysTabControl32", "msctls_statusbar32",
-		"tooltips_class32", "SysListView32",   "msctls_updown32"
+		"tooltips_class32", "SysListView32",   "msctls_updown32", "ScrollBar"
 	};
 	static struct pe_gui_class *classes;
 	PE_STATE_GUARD;
 	if (!classes) {
-		classes = pe_raw_map(sizeof(*classes) * 12);
+		classes = pe_raw_map(sizeof(*classes) * 13);
 		if (!classes) {
 			SetLastError(8);
 			return NULL;
 		}
-		for (unsigned i = 0; i < 12; i++) {
+		for (unsigned i = 0; i < 13; i++) {
 			struct pe_gui_class *c = &classes[i];
 			c->atom = 0xa000 + i;
 			c->builtin = i + 1;
@@ -52,7 +52,7 @@ static struct pe_gui_class *pe_builtin_class(HANDLE instance,
 			c->data.class_name = c->name;
 		}
 	}
-	for (unsigned i = 0; i < 12; i++)
+	for (unsigned i = 0; i < 13; i++)
 		if ((uintptr_t)name < 65536 ?
 			    (uintptr_t)name == classes[i].atom :
 			    utf16_ascii_equal_ci(name, names[i]))

@@ -59,6 +59,8 @@ struct pe_subclass;
 struct pe_control;
 struct pe_scrollbars;
 struct pe_window {
+	HANDLE dialog_font;
+	int dialog_base_x, dialog_base_y;
 	struct pe_region update;
 	struct pe_property *properties;
 	struct pe_control *control;
@@ -559,6 +561,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	pe_scroll_clear(w);
 	pe_properties_clear(w);
 	pe_control_clear(w);
+	if (w->dialog_font) { DeleteObject(w->dialog_font); w->dialog_font = NULL; }
 	if (w->menu && !(w->style & 0x40000000u))
 		DestroyMenu(w->menu);
 	pe_ui_cancel_window(w);
