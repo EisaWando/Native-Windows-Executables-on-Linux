@@ -3487,6 +3487,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/format.inc"
 #include "bridge/date_format.inc"
 #include "bridge/locale.inc"
+#include "bridge/locale_info.inc"
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/update_region.inc"
@@ -4018,6 +4019,9 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "LocaleNameToLCID")) return LocaleNameToLCID;
     if (!by_ordinal && ascii_equal_ci(function, "IsValidLocale")) return IsValidLocale;
     if (!by_ordinal && ascii_equal_ci(function, "IsValidLocaleName")) return IsValidLocaleName;
+    if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoW")) return GetLocaleInfoW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoA")) return GetLocaleInfoA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetLocaleInfoEx")) return GetLocaleInfoEx;
     if (!by_ordinal && ascii_equal_ci(function, "AreFileApisANSI")) return AreFileApisANSI;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleCP")) return GetConsoleCP;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleOutputCP")) return GetConsoleOutputCP;
