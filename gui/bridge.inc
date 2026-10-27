@@ -41,6 +41,8 @@ struct pe_ui_message {
 struct pe_subclass_frame;
 struct pe_ui_call;
 struct pe_ui {
+	DWORD message_time;
+	int32_t message_x, message_y;
 	struct pe_ui_call *calls, *active_calls, *outgoing;
 	struct pe_subclass_frame *subclass_frame;
 	struct pe_ui *next;
@@ -58,6 +60,8 @@ struct pe_property;
 struct pe_subclass;
 struct pe_control;
 struct pe_scrollbars;
+struct pe_point { int32_t x,y; };
+static struct pe_point pe_cursor;
 struct pe_window {
 	HANDLE dialog_font;
 	int dialog_base_x, dialog_base_y;
@@ -83,6 +87,7 @@ struct pe_window {
 };
 static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
+static bool pe_coord_origin(struct pe_window *,struct pe_point *);
 static void pe_scroll_clear(struct pe_window *);
 static void pe_invalidate_full(struct pe_window *);
 __attribute__((ms_abi)) BOOL InvalidateRect(HANDLE, const struct pe_rect *, BOOL);
@@ -265,6 +270,7 @@ static bool pe_ui_post(struct pe_ui *u, HANDLE hwnd, DWORD msg, uintptr_t wp,
 				    .wparam = wp,
 				    .lparam = lp,
 				    .time = GetTickCount(),
+				    .x = pe_cursor.x, .y = pe_cursor.y,
 				    .private = character };
 	if (u->tail)
 		u->tail->next = m;
@@ -668,10 +674,11 @@ __attribute__((ms_abi)) BOOL GetWindowRect(HANDLE hwnd, struct pe_rect *r)
 	struct pe_window *w = pe_window_lookup(hwnd, false);
 	if (!w || !r)
 		return 0;
-	*r = (struct pe_rect){
-		w->x, w->y, (int32_t)((uint32_t)w->x + (uint32_t)w->width),
-		(int32_t)((uint32_t)w->y + (uint32_t)w->height)
-	};
+	struct pe_point origin;
+	if (!pe_coord_origin(w,&origin)) return 0;
+	int32_t top=(uint32_t)origin.y-(uint32_t)pe_window_menu_height(w);
+	*r = (struct pe_rect){origin.x,top,(uint32_t)origin.x+(uint32_t)w->width,
+		(uint32_t)top+(uint32_t)w->height};
 	return 1;
 }
 __attribute__((ms_abi)) BOOL SetWindowTextW(HANDLE hwnd, const uint16_t *title)
@@ -813,8 +820,10 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 		return true;
 	if ((p.a == 0x100 || p.a == 0x101) && p.b >= 0 && p.b < 256)
 		u->keys[p.b] = p.a == 0x100;
-	if (p.a >= 0x200 && p.a <= 0x20e)
+	if (p.a >= 0x200 && p.a <= 0x20e) {
+		{ PE_STATE_GUARD; pe_cursor.x=(int32_t)p.color; pe_cursor.y=(int32_t)p.background; }
 		p.d -= pe_window_menu_height(w);
+	}
 	if (p.a == 7)
 		u->focus = w->handle;
 	if (p.a == 8 && u->focus == w->handle)
@@ -870,6 +879,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 					 (!max || m->value.message <= max));
 				if (matches) {
 					*out = m->value;
+					u->message_x=out->x; u->message_y=out->y; u->message_time=out->time;
 					if (flags & 1) {
 						*link = m->next;
 						if (u->tail == m)
@@ -894,8 +904,10 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 						*out = (struct pe_msg){
 							.hwnd = w->handle,
 							.message = 0xf,
-							.time = GetTickCount()
+							.time = GetTickCount(),
+							.x = pe_cursor.x, .y = pe_cursor.y
 						};
+						u->message_x=out->x; u->message_y=out->y; u->message_time=out->time;
 						return 1;
 					}
 		}

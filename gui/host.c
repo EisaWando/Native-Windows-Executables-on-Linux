@@ -374,6 +374,7 @@ static void event_packet(struct pg_packet *p)
 			return;
 		case MotionNotify:
 			p->a = 0x200;
+			p->color = e.xmotion.x_root; p->background = e.xmotion.y_root;
 			p->c = e.xmotion.x;
 			p->d = e.xmotion.y;
 			return;
@@ -385,6 +386,7 @@ static void event_packet(struct pg_packet *p)
 				e.xbutton.button == 2 ? 0x207 :
 							0x204) +
 			       (e.type == ButtonRelease);
+			p->color = e.xbutton.x_root; p->background = e.xbutton.y_root;
 			p->c = e.xbutton.x;
 			p->d = e.xbutton.y;
 			return;

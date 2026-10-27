@@ -93,3 +93,12 @@ SendDlgItemMessageA converts WM_SETTEXT and WM_GETTEXT; other messages are
 forwarded without message-specific ANSI conversion. The dialog default proc
 inherits the existing limited DefWindowProc behavior. Custom dialog window
 classes must provide suitable dialog-procedure dispatch and 24 extra bytes.
+
+Coordinate APIs use the bridge's stored pixel geometry. Top-level positions are
+screen coordinates, child positions are relative to their parent's client
+origin, and the 24-pixel menu strip shifts the client origin down. The helper
+reports X11 root coordinates with motion and button events; SetCursorPos only
+changes the logical position and does not yet warp the native X11 pointer.
+Hit testing follows the current newest-first window list. The layer does not
+currently maintain independent z-order changes from SetWindowPos, and mirrored
+WS_EX_LAYOUTRTL coordinate transforms are not implemented.

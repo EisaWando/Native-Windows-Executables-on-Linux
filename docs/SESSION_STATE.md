@@ -1,10 +1,16 @@
 # Resume state
 
+- Latest batch: coordinates and hit testing (commit pending post-commit refresh).
+- Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the sandbox, exit 0, 68 PASS; tests/coords.exe PASS, visible tests SKIP.
+- Latest suite Notepad++: exit 127, 389 resolved / 231 unimplemented, USER32!SetParent ret=0x14008c9f3.
+- Coordinate mapping uses stored parent-client positions and the 24-pixel menu strip; pointer events update the logical cursor and queued-message coordinates. SetCursorPos does not warp X11. Hit testing uses the newest-first window list; explicit z-order changes and RTL mirroring are not implemented.
+- Next steps: post-commit Notepad++ verification; conditional modal-dialog batch if the owner quota permits; investigate SetParent.
+
 - Latest batch: modeless dialog templates and creation (commit a24f76fae). Standard and extended resource/indirect templates use
   bounded guarded reads, a 4096-item limit, and bounded UTF-16 strings.
-- Last full regression: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the
+- Previous full regression: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the
   sandbox, exit 0, 67 PASS; `tests/dialogs.exe` PASS. Visible tests SKIP.
-- Latest suite and post-commit Notepad++: exit 127, 382 resolved / 238 unimplemented;
+- Previous suite and post-commit Notepad++: exit 127, 382 resolved / 238 unimplemented;
   USER32!ScreenToClient ret=0x140089408. No PE exit 126 or new crash/hang.
 - Dialog-unit base: 8x16 without a template font; a specified font uses its
   52-letter mean width and text height at 96 DPI. If host measurement fails,
@@ -24,7 +30,7 @@
 - Clipboard remains process-local; text synthesis uses UTF-8 for ANSI/OEM. Delayed-rendered text gains synthesized formats only after rendering.
 
 
-- Current commit: a24f76fae — modeless dialog templates and creation.
+- Earlier commit: a24f76fae — modeless dialog templates and creation.
 - Previous recorded green: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, **66 PASS**, no FAIL.
   Display test `timeout 30s tests/windows.exe` (DISPLAY=:0, real X11 + FreeType
   helper) prints `windows ok`, exit 0, including the new ExtTextOutW pixel checks.

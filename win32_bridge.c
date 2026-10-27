@@ -3495,6 +3495,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/dialog_template.inc"
+#include "gui/coordinates.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
 
@@ -3621,6 +3622,17 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageA")) return SendDlgItemMessageA;
     if (!by_ordinal && ascii_equal_ci(function, "GetNextDlgTabItem")) return GetNextDlgTabItem;
     if (!by_ordinal && ascii_equal_ci(function, "GetNextDlgGroupItem")) return GetNextDlgGroupItem;
+    if (!by_ordinal && ascii_equal_ci(function, "ScreenToClient")) return ScreenToClient;
+    if (!by_ordinal && ascii_equal_ci(function, "ClientToScreen")) return ClientToScreen;
+    if (!by_ordinal && ascii_equal_ci(function, "MapWindowPoints")) return MapWindowPoints;
+    if (!by_ordinal && ascii_equal_ci(function, "GetCursorPos")) return GetCursorPos;
+    if (!by_ordinal && ascii_equal_ci(function, "SetCursorPos")) return SetCursorPos;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMessagePos")) return GetMessagePos;
+    if (!by_ordinal && ascii_equal_ci(function, "GetMessageTime")) return GetMessageTime;
+    if (!by_ordinal && ascii_equal_ci(function, "WindowFromPoint")) return WindowFromPoint;
+    if (!by_ordinal && ascii_equal_ci(function, "ChildWindowFromPoint")) return ChildWindowFromPoint;
+    if (!by_ordinal && ascii_equal_ci(function, "ChildWindowFromPointEx")) return ChildWindowFromPointEx;
+    if (!by_ordinal && ascii_equal_ci(function, "RealChildWindowFromPoint")) return RealChildWindowFromPoint;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgCtrlID")) return GetDlgCtrlID;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgItem")) return GetDlgItem;
     if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageW")) return SendDlgItemMessageW;
