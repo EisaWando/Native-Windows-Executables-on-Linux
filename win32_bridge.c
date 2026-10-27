@@ -3486,6 +3486,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/product.inc"
 #include "bridge/format.inc"
 #include "bridge/date_format.inc"
+#include "bridge/locale.inc"
 #include "bridge/bitmaps.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/update_region.inc"
@@ -4002,6 +4003,21 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "WideCharToMultiByte")) return WideCharToMultiByte;
     if (!by_ordinal && ascii_equal_ci(function, "SetHandleCount")) return SetHandleCount;
     if (!by_ordinal && ascii_equal_ci(function, "GetCPInfoExW")) return GetCPInfoExW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetUserDefaultLCID")) return GetUserDefaultLCID;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDefaultLCID")) return GetSystemDefaultLCID;
+    if (!by_ordinal && ascii_equal_ci(function, "GetUserDefaultLangID")) return GetUserDefaultLangID;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDefaultLangID")) return GetSystemDefaultLangID;
+    if (!by_ordinal && ascii_equal_ci(function, "GetUserDefaultUILanguage")) return GetUserDefaultUILanguage;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDefaultUILanguage")) return GetSystemDefaultUILanguage;
+    if (!by_ordinal && ascii_equal_ci(function, "GetThreadUILanguage")) return GetThreadUILanguage;
+    if (!by_ordinal && ascii_equal_ci(function, "GetThreadLocale")) return GetThreadLocale;
+    if (!by_ordinal && ascii_equal_ci(function, "SetThreadLocale")) return SetThreadLocale;
+    if (!by_ordinal && ascii_equal_ci(function, "GetUserDefaultLocaleName")) return GetUserDefaultLocaleName;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSystemDefaultLocaleName")) return GetSystemDefaultLocaleName;
+    if (!by_ordinal && ascii_equal_ci(function, "LCIDToLocaleName")) return LCIDToLocaleName;
+    if (!by_ordinal && ascii_equal_ci(function, "LocaleNameToLCID")) return LocaleNameToLCID;
+    if (!by_ordinal && ascii_equal_ci(function, "IsValidLocale")) return IsValidLocale;
+    if (!by_ordinal && ascii_equal_ci(function, "IsValidLocaleName")) return IsValidLocaleName;
     if (!by_ordinal && ascii_equal_ci(function, "AreFileApisANSI")) return AreFileApisANSI;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleCP")) return GetConsoleCP;
     if (!by_ordinal && ascii_equal_ci(function, "GetConsoleOutputCP")) return GetConsoleOutputCP;
