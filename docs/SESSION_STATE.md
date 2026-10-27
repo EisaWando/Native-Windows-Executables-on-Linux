@@ -1,11 +1,10 @@
 # Resume state
 
-- Latest batch: modeless dialog templates and creation (commit recorded in the
-  post-commit refresh). Standard and extended resource/indirect templates use
+- Latest batch: modeless dialog templates and creation (commit a24f76fae). Standard and extended resource/indirect templates use
   bounded guarded reads, a 4096-item limit, and bounded UTF-16 strings.
 - Last full regression: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside the
   sandbox, exit 0, 67 PASS; `tests/dialogs.exe` PASS. Visible tests SKIP.
-- Latest suite Notepad++: exit 127, 382 resolved / 238 unimplemented;
+- Latest suite and post-commit Notepad++: exit 127, 382 resolved / 238 unimplemented;
   USER32!ScreenToClient ret=0x140089408. No PE exit 126 or new crash/hang.
 - Dialog-unit base: 8x16 without a template font; a specified font uses its
   52-letter mean width and text height at 96 DPI. If host measurement fails,
@@ -25,13 +24,13 @@
 - Clipboard remains process-local; text synthesis uses UTF-8 for ANSI/OEM. Delayed-rendered text gains synthesized formats only after rendering.
 
 
-- Current commit: f35f9c97c — clipboard synthesis, ownership and listeners.
+- Current commit: a24f76fae — modeless dialog templates and creation.
 - Previous recorded green: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, **66 PASS**, no FAIL.
   Display test `timeout 30s tests/windows.exe` (DISPLAY=:0, real X11 + FreeType
   helper) prints `windows ok`, exit 0, including the new ExtTextOutW pixel checks.
-- Notepad++: exit 127, stops at **USER32!CreateDialogIndirectParamW**
+- Earlier Notepad++ stop: exit 127, **USER32!CreateDialogIndirectParamW**
   (rcx=HINSTANCE 0x14000000, rdx=DLGTEMPLATE, r8=owner HWND, r9=0x1401e9e80).
-  **380 resolved / 240 unimplemented** in the post-commit standalone run.
+  **380 resolved / 240 unimplemented** before this batch.
 - Batches done in this session (one small batch each, suite green after each):
   1. `60b5ec006` clipboard family + HGLOBAL global memory (`bridge/clipboard.inc`,
      `tests/clipboard.c`): OpenClipboard nesting, EmptyClipboard owner
@@ -58,7 +57,7 @@
   - ExtTextOutW rejects ETO_GLYPH_INDEX (ERROR_INVALID_FUNCTION) because there is
     no glyph-index mapping for the host font; ETO_RTLREADING succeeds but does not
     reorder runs (no bidirectional layout).
-- Next 3 steps:
+- Earlier next steps (before this batch):
   1. Dialog templates (`DLGTEMPLATE`/`DLGTEMPLATEEX`, CreateDialogIndirectParamW,
      CreateDialogParamW, DefDlgProcW) — **tagged `[strong]` in NEXT_TASKS (T3a/T3b)**.
   2. Then IsDialogMessageW/EndDialog modal loop (T3c) and the remaining 240 imports
