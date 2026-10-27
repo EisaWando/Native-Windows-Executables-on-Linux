@@ -21,6 +21,15 @@ static LRESULT CALLBACK proc(HWND w, UINT m, WPARAM wp, LPARAM lp)
     }
     return DefWindowProcW(w,m,wp,lp);
 }
+static HWND owner_for_thread;
+static DWORD WINAPI competing(void *unused)
+{
+    (void)unused;
+    C(!OpenClipboard(owner_for_thread) && GetLastError()==5);
+    C(!CloseClipboard() && GetLastError()==1418);
+    C(!EmptyClipboard() && GetLastError()==1418);
+    return 23;
+}
 void mainCRTStartup(void)
 {
     HINSTANCE h=GetModuleHandleW(0);
@@ -30,15 +39,18 @@ void mainCRTStartup(void)
     HWND w2=CreateWindowExW(0,c.lpszClassName,L"",WS_OVERLAPPEDWINDOW,0,0,100,100,0,0,h,0);
     C(w1 && w2);
 
+    C(AddClipboardFormatListener(w2));
+    C(AddClipboardFormatListener(w2)); /* duplicate registration does not duplicate delivery */
+    C(!AddClipboardFormatListener((HWND)1) && GetLastError()==1400);
     /* 1. Fresh process-local clipboard, closed. */
     C(!IsClipboardFormatAvailable(CF_UNICODETEXT) && !IsClipboardFormatAvailable(CF_TEXT));
     C(CountClipboardFormats()==0);
     C(!GetClipboardOwner() && !GetOpenClipboardWindow());
-    C(!GetClipboardData(CF_TEXT) && GetLastError()==5);
-    C(!SetClipboardData(CF_TEXT,(HANDLE)1) && GetLastError()==5);
-    C(!EmptyClipboard() && GetLastError()==5);
-    C(!CloseClipboard() && GetLastError()==5);
-    C(EnumClipboardFormats(0)==0 && GetLastError()==5);
+    C(!GetClipboardData(CF_TEXT) && GetLastError()==1418);
+    C(!SetClipboardData(CF_TEXT,(HANDLE)1) && GetLastError()==1418);
+    C(!EmptyClipboard() && GetLastError()==1418);
+    C(!CloseClipboard() && GetLastError()==1418);
+    C(EnumClipboardFormats(0)==0 && GetLastError()==1418);
     UINT probe[2]={CF_TEXT,CF_UNICODETEXT};
     C(GetPriorityClipboardFormat(probe,2)==0);          /* empty clipboard */
     C(GetPriorityClipboardFormat(0,2)==-1 && GetLastError()==87);
@@ -62,11 +74,17 @@ void mainCRTStartup(void)
     C(GlobalUnlock(fixedmem)==1);                        /* fixed: no lock count */
     C(!GlobalFree(fixedmem));
     C(!GlobalSize(0) && GetLastError()==6);
+    C(!GlobalLock((HGLOBAL)1) && GetLastError()==6);
+    C(GlobalFree((HGLOBAL)1)==(HGLOBAL)1 && GetLastError()==6);
     static char notglobal[8];
     C(!GlobalHandle(notglobal) && GetLastError()==6);
 
     /* 3. Ownership: one window at a time, nested opens by the same window. */
     C(OpenClipboard(w1));
+    owner_for_thread=w1;
+    HANDLE t=CreateThread(0,0,competing,0,0,0); C(t);
+    C(WaitForSingleObject(t,5000)==WAIT_OBJECT_0);
+    DWORD code; C(GetExitCodeThread(t,&code) && code==23 && CloseHandle(t));
     C(!OpenClipboard(w2) && GetLastError()==5);
     C(GetOpenClipboardWindow()==w1);
     C(OpenClipboard(w1));
@@ -74,8 +92,18 @@ void mainCRTStartup(void)
     C(GetClipboardOwner()==w1 && destroys==0);           /* nothing was destroyed yet */
     C(CloseClipboard() && GetOpenClipboardWindow()==w1); /* still open once */
     C(CloseClipboard() && !GetOpenClipboardWindow());
+    MSG update; C(PeekMessageW(&update,w2,WM_CLIPBOARDUPDATE,WM_CLIPBOARDUPDATE,PM_REMOVE));
+    C(!PeekMessageW(&update,w2,WM_CLIPBOARDUPDATE,WM_CLIPBOARDUPDATE,PM_REMOVE));
+    C(RemoveClipboardFormatListener(w2));
+    C(!RemoveClipboardFormatListener(w2) && GetLastError()==1168);
     C(GetClipboardOwner()==w1);                          /* contents keep their owner */
 
+    UINT custom=RegisterClipboardFormatW(L"Custom Clipboard");
+    C(custom==0xc000 && RegisterClipboardFormatA("custom clipboard")==custom);
+    WCHAR name[64]; char aname[64];
+    C(GetClipboardFormatNameW(custom,name,64)==16 && !lstrcmpW(name,L"Custom Clipboard"));
+    C(GetClipboardFormatNameA(custom,aname,64)==16 && !lstrcmpA(aname,"Custom Clipboard"));
+    C(RegisterClipboardFormatW(L"Second") == custom+1);
     /* 4. Store CF_UNICODETEXT then CF_TEXT. */
     HGLOBAL u16=GlobalAlloc(GMEM_MOVEABLE,22);
     C(u16); lstrcpyW(GlobalLock(u16),L"clipboard"); C(!GlobalUnlock(u16) && GetLastError()==0);
@@ -84,12 +112,18 @@ void mainCRTStartup(void)
     C(destroys==notify+1);                               /* previous owner notified */
     unsigned seq=GetClipboardSequenceNumber();
     C(SetClipboardData(CF_UNICODETEXT,u16)==u16);
-    C(GetClipboardSequenceNumber()>seq);
-    C(CountClipboardFormats()==1);
-    C(IsClipboardFormatAvailable(CF_UNICODETEXT) && !IsClipboardFormatAvailable(CF_TEXT));
+    C(GlobalFree(u16)==u16 && GetLastError()==5);
+    C(!GlobalReAlloc(u16,40,GMEM_MOVEABLE) && GetLastError()==5);
+    C(GetClipboardSequenceNumber()==seq+1);
+    C(CountClipboardFormats()==3);
+    C(IsClipboardFormatAvailable(CF_UNICODETEXT) && IsClipboardFormatAvailable(CF_TEXT) && IsClipboardFormatAvailable(CF_OEMTEXT));
+    HGLOBAL synth=GetClipboardData(CF_TEXT); C(synth && !lstrcmpA(GlobalLock(synth),"clipboard"));
+    C(!GlobalUnlock(synth) && GetLastError()==0);
     C(EnumClipboardFormats(0)==CF_UNICODETEXT);
-    C(EnumClipboardFormats(CF_UNICODETEXT)==0 && GetLastError()==0);
-    C(GetPriorityClipboardFormat(probe,2)==CF_UNICODETEXT);
+    C(EnumClipboardFormats(CF_UNICODETEXT)==CF_TEXT);
+    C(EnumClipboardFormats(CF_TEXT)==CF_OEMTEXT);
+    C(EnumClipboardFormats(CF_OEMTEXT)==0 && GetLastError()==0);
+    C(GetPriorityClipboardFormat(probe,2)==CF_TEXT);
     C(GetClipboardOwner()==w1);
     HGLOBAL back=GetClipboardData(CF_UNICODETEXT);
     C(back==u16 && !lstrcmpW(GlobalLock(back),L"clipboard"));
@@ -97,9 +131,9 @@ void mainCRTStartup(void)
     HGLOBAL ascii=GlobalAlloc(GMEM_MOVEABLE,8);
     C(ascii); lstrcpyA(GlobalLock(ascii),"plain"); C(!GlobalUnlock(ascii) && GetLastError()==0);
     C(SetClipboardData(CF_TEXT,ascii)==ascii);
-    C(CountClipboardFormats()==2);
+    C(CountClipboardFormats()==3);
     C(EnumClipboardFormats(0)==CF_UNICODETEXT && EnumClipboardFormats(CF_UNICODETEXT)==CF_TEXT);
-    C(EnumClipboardFormats(CF_TEXT)==0);
+    C(EnumClipboardFormats(CF_TEXT)==CF_OEMTEXT && EnumClipboardFormats(CF_OEMTEXT)==0);
     C(GetPriorityClipboardFormat(probe,2)==CF_TEXT);      /* list order decides */
     UINT none[2]={CF_BITMAP,CF_METAFILEPICT};
     C(GetPriorityClipboardFormat(none,2)==-1);            /* not empty, no match */
@@ -107,9 +141,9 @@ void mainCRTStartup(void)
 
     /* 5. Contents survive CloseClipboard; reading needs an open clipboard. */
     C(IsClipboardFormatAvailable(CF_TEXT) && IsClipboardFormatAvailable(CF_UNICODETEXT));
-    C(CountClipboardFormats()==2);
-    C(!GetClipboardData(CF_TEXT) && GetLastError()==5);
-    C(EnumClipboardFormats(0)==0 && GetLastError()==5);
+    C(CountClipboardFormats()==3);
+    C(!GetClipboardData(CF_TEXT) && GetLastError()==1418);
+    C(EnumClipboardFormats(0)==0 && GetLastError()==1418);
     C(!GetOpenClipboardWindow() && GetClipboardOwner()==w1);
 
     /* 6. EmptyClipboard notifies the previous owner. */
@@ -120,16 +154,19 @@ void mainCRTStartup(void)
     C(GetClipboardOwner()==w1);
     C(CloseClipboard());
 
-    /* 7. OpenClipboard(NULL): the clipboard has no owner, so setting fails. */
+    /* 7. The requested process-local semantics also allow a NULL owner. */
     notify=destroys;
     C(OpenClipboard(0) && EmptyClipboard());
     C(destroys==notify+1);
     C(!GetClipboardOwner());
     HGLOBAL unowned=GlobalAlloc(GMEM_MOVEABLE,8);
-    C(unowned && !SetClipboardData(CF_TEXT,unowned) && GetLastError()==5);
-    C(!GetClipboardData(CF_TEXT) && GetLastError()==0);
+    C(unowned); lstrcpyA(GlobalLock(unowned), "cafe\xc3\xa9");
+    C(!GlobalUnlock(unowned) && GetLastError()==0);
+    C(SetClipboardData(CF_TEXT,unowned)==unowned);
+    HGLOBAL reversed=GetClipboardData(CF_UNICODETEXT);
+    C(reversed && !lstrcmpW(GlobalLock(reversed), L"cafe\x00e9"));
+    C(!GlobalUnlock(reversed) && GetLastError()==0);
     C(CloseClipboard());
-    C(!GlobalFree(unowned));                             /* still the app's memory */
 
     /* 8. Delayed rendering: NULL handle, rendered through WM_RENDERFORMAT. */
     notify=destroys;

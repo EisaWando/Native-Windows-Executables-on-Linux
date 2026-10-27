@@ -3,6 +3,7 @@
 | File | Contents / purpose | Key functions |
 |---|---|---|
 | `win32_bridge.c` | Main bridge: startup (`_start`), PE loader, TEB/PEB init, syscall helpers, core KERNEL32 shims, `lookup_shim()` dispatch table, import resolution | `_start`, `raw_syscall3/4/6`, `lookup_shim`, `GetStdHandle`, `WriteFile`, `ExitProcess`, `SetLastError`, `pe_state_enter/leave`, `install_crash_handler`, `crash_handler` |
+| `bridge/clipboard.inc` | Process-local clipboard, HGLOBAL handles, UTF-8/UTF-16 text synthesis and listeners | `OpenClipboard`, `SetClipboardData`, `GetClipboardData`, `GlobalAlloc`, `AddClipboardFormatListener` |
 | `bridge/colors.inc` | DWM/UX theme colour helpers; HLS↔RGB conversions | `DwmGetColorizationColor`, `DwmIsCompositionEnabled`, `IsThemeActive`, `ColorRGBToHLS`, `ColorHLSToRGB`, `ColorAdjustLuma` |
 | `bridge/com.inc` | COM/OLE initialisation stubs; CoTask heap; CoCreateInstance/CoGetClassObject (returns `E_NOINTERFACE`) | `CoInitializeEx`, `OleInitialize`, `CoTaskMemAlloc/Free/Realloc`, `CoCreateInstance`, `CoGetClassObject` |
 | `bridge/crypto.inc` | KERNEL32/ADVAPI32 Crypt* shims; internal SHA-256; CNG hash provider objects | `pe_sha_init`, `pe_sha_update`, `pe_sha_finish`, `pe_crypto_new/pin/drop`, `CryptCreateHash`, `CryptHashData`, `CryptGetHashParam` |

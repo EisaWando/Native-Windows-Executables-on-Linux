@@ -1,5 +1,10 @@
 # Resume state
 
+- Clipboard follow-up: existing `bridge/clipboard.inc` now synthesizes UTF-8 CF_TEXT/CF_OEMTEXT and UTF-16 CF_UNICODETEXT, tracks the opener thread, reports error 1418 for closed operations, validates global handles through a locked registry, preserves clipboard-owned memory, and posts WM_CLIPBOARDUPDATE to registered listeners.
+- Latest outside-sandbox `/tmp/run.log`: 66 PASS lines, no FAIL, including `tests/clipboard.exe`; visible tests skipped. The process exit status was lost when the session was interrupted after the log completed. The first sandboxed run failed three native font-helper tests; the outside-sandbox retry passed them.
+- Clipboard remains process-local; text synthesis uses UTF-8 for ANSI/OEM. Delayed-rendered text gains synthesized formats only after rendering.
+
+
 - Current commit: 1c8f75787 — ExtTextOutW/A with ETO_OPAQUE, ETO_CLIPPED and lpDx.
 - Last green: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, **66 PASS**, no FAIL.
   Display test `timeout 30s tests/windows.exe` (DISPLAY=:0, real X11 + FreeType

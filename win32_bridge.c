@@ -3870,6 +3870,8 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "RegisterClipboardFormatA")) return RegisterClipboardFormatA;
     if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameW")) return GetClipboardFormatNameW;
     if (!by_ordinal && ascii_equal_ci(function, "GetClipboardFormatNameA")) return GetClipboardFormatNameA;
+    if (!by_ordinal && ascii_equal_ci(function, "AddClipboardFormatListener")) return AddClipboardFormatListener;
+    if (!by_ordinal && ascii_equal_ci(function, "RemoveClipboardFormatListener")) return RemoveClipboardFormatListener;
     if (!by_ordinal && ascii_equal_ci(function, "OpenClipboard")) return OpenClipboard;
     if (!by_ordinal && ascii_equal_ci(function, "CloseClipboard")) return CloseClipboard;
     if (!by_ordinal && ascii_equal_ci(function, "EmptyClipboard")) return EmptyClipboard;
