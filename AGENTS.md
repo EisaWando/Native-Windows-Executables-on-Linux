@@ -22,6 +22,11 @@ Always limit output: `| head -n 40`, `| tail -n 40`, `sed -n '100,160p' FILE`, `
 6. Commit locally after every green test run with a clear message. Do NOT `git push`.
 7. After each commit update `docs/SESSION_STATE.md` (current commit, last green test run, Notepad++ stop and import counts, next 3 steps).
 8. If you are unsure, ask the owner. A wrong guess costs more than a question.
+9. EVIDENCE RULE: every claim in a report must be backed by raw output pasted from a command you ran in this session: the PASS/FAIL lines of `bash tests/run_all.sh`, the first lines of `/tmp/err.txt` after running Notepad++, and the line printed by `git log --oneline -1` after each commit. Never write a commit hash, test result or import count that you did not just see printed. If a command failed or you did not run it, say so plainly.
+10. YOU run and verify everything yourself (build, tests, Notepad++). The owner is not your test runner. A change is "done" only when the Notepad++ stop or the import count visibly changed in YOUR run, or the new test passed in YOUR run.
+11. DO NOT RE-IMPLEMENT. Before adding any Windows function, check it does not already exist: `rg -n 'FunctionName' win32_bridge.c bridge gui | head`. Duplicates break the build or silently replace real code.
+12. NO FAKE STUBS. Do not register a function that just returns 0 or a made-up handle to get past a stop. Implement real, documented behavior, or stop and report that the function needs a larger feature.
+13. Ordinal imports (`dll!ordinal 0x...`): find the real function name from the public mingw-w64 `.def` files or Microsoft documentation, state which function it is, and match its real signature before implementing.
 
 ## Commands
 Build the bridge:
