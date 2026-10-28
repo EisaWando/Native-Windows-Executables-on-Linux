@@ -35,8 +35,8 @@ x86_64-w64-mingw32-dlltool --input-def tests/commctl_ordinals.def --output-lib "
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/commctl_ordinals.exe tests/commctl_ordinals.c "$work/ordinal-icons.o" "$work/commctl-ordinals.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-windres tests/dialogs.rc -o "$work/dialogs.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/dialogs.exe tests/dialogs.c "$work/dialogs.o" -lkernel32 -lgdi32 -luser32 || exit 1
-x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/hooks.exe tests/hooks.c -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-windres tests/modal_dialogs.rc -o "$work/modal-dialogs.o" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/hooks.exe tests/hooks.c "$work/modal-dialogs.o" -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/modal_dialogs.exe tests/modal_dialogs.c "$work/modal-dialogs.o" -lkernel32 -lgdi32 -luser32 || exit 1
 x86_64-w64-mingw32-windres tests/resources.rc -o "$work/resources.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/resources.exe tests/resources.c "$work/resources.o" -lkernel32 -luser32 || exit 1

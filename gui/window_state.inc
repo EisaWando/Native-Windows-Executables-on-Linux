@@ -14,6 +14,14 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 	if (!w)
 		return 0;
 	struct pe_windowpos pos = { hwnd, after, x, y, width, height, flags };
+	if ((flags & 3) != 3) {
+		struct pe_rect proposed = { flags & 2 ? w->x : x, flags & 2 ? w->y : y, 0, 0 };
+		proposed.right = proposed.left + (flags & 1 ? w->width : width);
+		proposed.bottom = proposed.top + (flags & 1 ? w->height : height);
+		if (pe_hook_dispatch(5,0,(uintptr_t)hwnd,(intptr_t)&proposed)) return 0;
+		if (!(flags & 2)) { pos.x=proposed.left; pos.y=proposed.top; }
+		if (!(flags & 1)) { pos.width=proposed.right-proposed.left; pos.height=proposed.bottom-proposed.top; }
+	}
 	if (!(flags & 0x400))
 		w->proc(hwnd, 0x46, 0, (intptr_t)&pos);
 	if (w->dead)
@@ -111,6 +119,7 @@ __attribute__((ms_abi)) HANDLE SetFocus(HANDLE hwnd)
 	HANDLE old = u->focus;
 	if (old == hwnd)
 		return old;
+	if (pe_hook_dispatch(5,9,(uintptr_t)hwnd,(intptr_t)old)) return NULL;
 	u->focus = hwnd;
 	if (old && IsWindow(old))
 		SendMessageW(old, 8, (uintptr_t)hwnd, 0);
@@ -150,9 +159,11 @@ __attribute__((ms_abi)) HANDLE SetActiveWindow(HANDLE hwnd)
 	if (hwnd && !pe_window_lookup(hwnd, true))
 		return NULL;
 	HANDLE old = u->active;
-	u->active = hwnd;
 	if (old == hwnd)
 		return old;
+	struct { BOOL mouse; HANDLE old; } activate={0,old};
+	if (pe_hook_dispatch(5,5,(uintptr_t)hwnd,(intptr_t)&activate)) return NULL;
+	u->active = hwnd;
 	if (old && IsWindow(old))
 		SendMessageW(old, 6, 0, (intptr_t)hwnd);
 	if (hwnd && IsWindow(hwnd))

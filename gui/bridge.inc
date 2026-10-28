@@ -92,6 +92,16 @@ struct pe_window {
 };
 static struct pe_ui *pe_uis;
 static intptr_t pe_hook_dispatch(int, int, uintptr_t, intptr_t);
+static bool pe_hook_input(struct pe_msg *m)
+{
+	if (m->message >= 0x100 && m->message <= 0x109)
+		return pe_hook_dispatch(2,0,m->wparam,m->lparam) != 0;
+	if (m->message >= 0x200 && m->message <= 0x20e) {
+		struct { int32_t x,y; HANDLE hwnd; DWORD hit; uintptr_t extra; } mouse={m->x,m->y,m->hwnd,1,0};
+		return pe_hook_dispatch(7,0,m->message,(intptr_t)&mouse) != 0;
+	}
+	return false;
+}
 static struct pe_window *pe_windows;
 static bool pe_coord_origin(struct pe_window *,struct pe_point *);
 static bool pe_tree_reorder(struct pe_window *,HANDLE);
@@ -482,6 +492,14 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 	struct pe_create cs = { parameter,	instance, menu, parent,
 				height,		width,	  y,	x,
 				(int32_t)style, title,	  cls,	ex };
+	struct { struct pe_create *cs; HANDLE after; } cbt = { &cs, NULL };
+	if (pe_hook_dispatch(5,3,(uintptr_t)w->handle,(intptr_t)&cbt)) {
+		PE_STATE_GUARD;
+		w->dead = true; w->cls->windows--;
+		if (w->menu && !(w->style & 0x40000000u)) DestroyMenu(w->menu);
+		pe_gui_drop(pe_gui_lookup(w->handle, PE_GUI_WINDOW));
+		return NULL;
+	}
 	intptr_t nc = w->proc(w->handle, 0x81, 0, (intptr_t)&cs);
 	if (w->dead)
 		return NULL;
@@ -546,6 +564,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	if (!w || w->destroying)
 		return 0;
+	if (pe_hook_dispatch(5,4,(uintptr_t)hwnd,0)) return 0;
 	w->destroying = true;
     if ((w->style & 0x40000000u) && !(w->exstyle & 4) && w->parent) {
         HANDLE p=w->parent;
@@ -652,6 +671,8 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 		SetLastError(87);
 		return 0;
 	}
+	if ((command==2 || command==3 || command==6 || command==7 || command==9 || command==11) &&
+	    pe_hook_dispatch(5,1,(uintptr_t)hwnd,command)) return 0;
 	BOOL previous = w->visible;
 	bool visible = command != 0;
 	if (visible && !w->realized && !w->cls->builtin && !(w->style & 0x40000000u) && w->parent != (HANDLE)(intptr_t)-3) {
@@ -893,6 +914,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 		return -1;
 	bool polled = false;
 	for (;;) {
+pe_hook_retry:
 		pe_ui_deliver(u);
 		pe_timer_pump(u);
 		{
@@ -921,6 +943,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 							     sizeof(*m), 0);
 					}
 					pe_state_leave(&pe_guard);
+					if (pe_hook_input(out)) { if (flags & 1) goto pe_hook_retry; return 2; }
 					pe_hook_dispatch(3,0,flags & 1,(intptr_t)out);
 					return out->message == 0x12 ? 0 : 1;
 				}

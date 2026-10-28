@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 746cf4239, window message hook dispatch.
+- Full suite: exit 0, 72 PASS; hooks regression passed.
+- Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.
+- Limitations: unhooked records remain allocated; CBT, keyboard, mouse and modal filter hooks are not dispatched yet; global hooks are process-local.
+- Next: implement CBT/input/filter hook dispatch; run and commit regressions; resume Notepad++ loop.
+
 - Current commit: 1e1dbc985, hook registry and synchronous WH_CALLWNDPROC dispatch.
 - Full suite: exit 0, 72 PASS; tests/hooks.exe passed.
 - Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.

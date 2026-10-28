@@ -76,7 +76,7 @@ static intptr_t pe_modal_run(HANDLE instance,const void *source,size_t size,HAND
             struct pe_msg msg;int got=GetMessageW(&msg,NULL,0,0);
             if(got<0)break;
             if(!got){quit=true;quit_code=(int)msg.wparam;break;}
-            if(!IsDialogMessageW(hwnd,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}
+            if(!pe_hook_dispatch(-1,0,0,(intptr_t)&msg) && !IsDialogMessageW(hwnd,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}
         }
         if(__atomic_load_n(&state.ended,__ATOMIC_ACQUIRE))result=state.result;
     }
