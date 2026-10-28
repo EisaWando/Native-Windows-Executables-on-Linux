@@ -40,7 +40,7 @@ static void pe_ui_deliver(struct pe_ui *u)
 			u->active_calls = c;
 		}
 		struct pe_window *w = pe_window_lookup(c->hwnd, true);
-		intptr_t result = w ? w->proc(c->hwnd, c->msg, c->wp, c->lp) :
+		intptr_t result = w ? pe_hook_send(w, c->msg, c->wp, c->lp, false) :
 				      0;
 		{
 			PE_STATE_GUARD;
@@ -59,7 +59,7 @@ static intptr_t pe_ui_send(HANDLE hwnd, DWORD msg, uintptr_t wp, intptr_t lp)
 	if (!w)
 		return 0;
 	if (w->ui->tid == GetCurrentThreadId())
-		return w->proc(hwnd, msg, wp, lp);
+		return pe_hook_send(w, msg, wp, lp, true);
 	struct pe_ui *u = pe_ui_current();
 	if (!u)
 		return 0;

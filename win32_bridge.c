@@ -1324,6 +1324,7 @@ __attribute__((ms_abi)) void OutputDebugStringW(const uint16_t *s)
 #define PE_GUI_CURSOR 21
 #define PE_GUI_MENU 22
 #define PE_GUI_WINDOW 23
+#define PE_GUI_HOOK 24
 struct pe_logfont {
     int32_t height, width, escapement, orientation, weight;
     uint8_t italic, underline, strikeout, charset, outprec, clipprec, quality, pitch;
@@ -1340,7 +1341,7 @@ struct pe_gui_object {
     struct pe_region region; /* HRGN geometry or explicit DC clip. */
     bool clip_active;
     struct pe_raster *raster;struct pe_imagelist *imagelist;
-    struct pe_window *window;
+    struct pe_window *window; struct pe_hook *hook;
     struct pe_menu *menu;struct pe_accel_table *accelerator;
     uint32_t type, generation, selected, shared, slot;
     HANDLE owner;
@@ -3470,6 +3471,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/resources.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
+#include "gui/hooks.inc"
 #include "gui/window_state.inc"
 #include "gui/properties.inc"
 #include "gui/subclass.inc"
@@ -3520,6 +3522,12 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowsHookExW")) return SetWindowsHookExW;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowsHookExA")) return SetWindowsHookExA;
+    if (!by_ordinal && ascii_equal_ci(function, "UnhookWindowsHookEx")) return UnhookWindowsHookEx;
+    if (!by_ordinal && ascii_equal_ci(function, "CallNextHookEx")) return CallNextHookEx;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowsHookW")) return SetWindowsHookW;
+    if (!by_ordinal && ascii_equal_ci(function, "UnhookWindowsHook")) return UnhookWindowsHook;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRgn")) return GetUpdateRgn;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRect")) return GetUpdateRect;
     if (!by_ordinal && ascii_equal_ci(function, "InvalidateRgn")) return InvalidateRgn;

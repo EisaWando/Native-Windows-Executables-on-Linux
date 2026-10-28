@@ -46,6 +46,7 @@ struct pe_ui {
 	int32_t message_x, message_y;
 	struct pe_ui_call *calls, *active_calls, *outgoing;
 	struct pe_subclass_frame *subclass_frame;
+	struct pe_hook_frame *hook_frame;
 	struct pe_ui *next;
 	DWORD tid;
 	int fd, child;
