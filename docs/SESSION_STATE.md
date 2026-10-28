@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 78a67ba57, CBT, keyboard, mouse and dialog filter hook dispatch.
+- Full suite: exit 0, 72 PASS; hook regression covers CBT veto, keyboard and modal filter.
+- Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.
+- Limitations: unhooked records remain allocated; global hooks are process-local; menu-loop MSGFILTER dispatch remains to be verified or implemented.
+- Next: inspect VERSION APIs and implement version-resource support; cover menu-loop hooks; continue Notepad++ startup.
+
 - Current commit: 746cf4239, window message hook dispatch.
 - Full suite: exit 0, 72 PASS; hooks regression passed.
 - Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.

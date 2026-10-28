@@ -3469,6 +3469,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 }
 
 #include "bridge/resources.inc"
+#include "bridge/version.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
 #include "gui/hooks.inc"
@@ -3528,6 +3529,10 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "CallNextHookEx")) return CallNextHookEx;
     if (!by_ordinal && ascii_equal_ci(function, "SetWindowsHookW")) return SetWindowsHookW;
     if (!by_ordinal && ascii_equal_ci(function, "UnhookWindowsHook")) return UnhookWindowsHook;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoSizeW")) return GetFileVersionInfoSizeW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoSizeA")) return GetFileVersionInfoSizeA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoW")) return GetFileVersionInfoW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoA")) return GetFileVersionInfoA;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRgn")) return GetUpdateRgn;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRect")) return GetUpdateRect;
     if (!by_ordinal && ascii_equal_ci(function, "InvalidateRgn")) return InvalidateRgn;

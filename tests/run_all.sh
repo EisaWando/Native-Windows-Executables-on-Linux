@@ -33,6 +33,8 @@ x86_64-w64-mingw32-windres tests/ordinal_icons.rc -o "$work/ordinal-icons.o" || 
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/syscolors_draw.exe tests/syscolors_draw.c "$work/ordinal-icons.o" -lkernel32 -lgdi32 -luser32 || exit 1
 x86_64-w64-mingw32-dlltool --input-def tests/commctl_ordinals.def --output-lib "$work/commctl-ordinals.a" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/commctl_ordinals.exe tests/commctl_ordinals.c "$work/ordinal-icons.o" "$work/commctl-ordinals.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
+x86_64-w64-mingw32-windres tests/version.rc -o "$work/version.o" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/version.exe tests/version.c "$work/version.o" -lkernel32 -lversion || exit 1
 x86_64-w64-mingw32-windres tests/dialogs.rc -o "$work/dialogs.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/dialogs.exe tests/dialogs.c "$work/dialogs.o" -lkernel32 -lgdi32 -luser32 || exit 1
 x86_64-w64-mingw32-windres tests/modal_dialogs.rc -o "$work/modal-dialogs.o" || exit 1
@@ -70,6 +72,7 @@ check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/bitmaps.exe 0 'bitmaps ok' timeout 15s tests/bitmaps.exe
 check_pe tests/update_rgn.exe 0 'update rgn ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/update_rgn.exe
+check_pe tests/version.exe 0 'version ok' timeout 15s tests/version.exe
 check_pe tests/dialogs.exe 0 'dialogs ok' env DISPLAY= timeout 30s tests/dialogs.exe
 check_pe tests/hooks.exe 0 'hooks ok' env DISPLAY= timeout 30s tests/hooks.exe
 check_pe tests/modal_dialogs.exe 0 'modal dialogs ok' env DISPLAY= timeout 30s tests/modal_dialogs.exe
