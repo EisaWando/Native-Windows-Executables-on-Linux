@@ -40,6 +40,7 @@ struct pe_ui_message {
 };
 struct pe_subclass_frame;
 struct pe_ui_call;
+struct pe_timer;
 struct pe_ui {
 	DWORD message_time;
 	int32_t message_x, message_y;
@@ -60,9 +61,12 @@ struct pe_property;
 struct pe_subclass;
 struct pe_control;
 struct pe_scrollbars;
+struct pe_modal_state { HANDLE hwnd; intptr_t result; bool ended; };
 struct pe_point { int32_t x,y; };
 static struct pe_point pe_cursor;
 struct pe_window {
+	struct pe_modal_state *modal;
+	unsigned dialog_default_id;
 	HANDLE dialog_font;
 	int dialog_base_x, dialog_base_y;
 	struct pe_region update;
@@ -89,6 +93,9 @@ static struct pe_ui *pe_uis;
 static struct pe_window *pe_windows;
 static bool pe_coord_origin(struct pe_window *,struct pe_point *);
 static bool pe_tree_reorder(struct pe_window *,HANDLE);
+static void pe_timer_pump(struct pe_ui *);
+static void pe_timer_dequeued(struct pe_ui *,HANDLE,uintptr_t);
+static void pe_timer_remove_window(HANDLE);
 static void pe_scroll_clear(struct pe_window *);
 static void pe_invalidate_full(struct pe_window *);
 __attribute__((ms_abi)) BOOL InvalidateRect(HANDLE, const struct pe_rect *, BOOL);
@@ -557,6 +564,7 @@ __attribute__((ms_abi)) BOOL DestroyWindow(HANDLE hwnd)
 		    (child->style & 0x40000000u))
 			DestroyWindow(child->handle);
 	w->proc(hwnd, 0x82, 0, 0);
+	pe_timer_remove_window(hwnd);
 	pe_drop_window_destroy(w);
 	if (w->paint_dc) {
 		ReleaseDC(hwnd, w->paint_dc);
@@ -884,6 +892,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 	bool polled = false;
 	for (;;) {
 		pe_ui_deliver(u);
+		pe_timer_pump(u);
 		{
 			PE_STATE_GUARD;
 			struct pe_ui_message **link = &u->head,
@@ -901,6 +910,7 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 					*out = m->value;
 					u->message_x=out->x; u->message_y=out->y; u->message_time=out->time;
 					if (flags & 1) {
+                        if (out->message==0x113) pe_timer_dequeued(u,out->hwnd,out->wparam);
 						*link = m->next;
 						if (u->tail == m)
 							u->tail = previous;
@@ -954,8 +964,13 @@ __attribute__((ms_abi)) BOOL TranslateMessage(const struct pe_msg *m)
 }
 __attribute__((ms_abi)) intptr_t DispatchMessageW(const struct pe_msg *m)
 {
-	if (!m || !m->hwnd || m->message == 0x12)
-		return 0;
+	if (!m || m->message == 0x12) return 0;
+    if (m->message==0x113 && m->lparam) {
+        typedef void (__attribute__((ms_abi)) *timer_callback)(HANDLE,DWORD,uintptr_t,DWORD);
+        ((timer_callback)m->lparam)(m->hwnd,m->message,m->wparam,GetTickCount());
+        return 0;
+    }
+    if (!m->hwnd) return 0;
 	struct pe_window *w = pe_window_lookup(m->hwnd, true);
 	return w ? w->proc(m->hwnd, m->message, m->wparam, m->lparam) : 0;
 }

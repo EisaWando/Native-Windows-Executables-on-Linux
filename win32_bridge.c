@@ -3507,6 +3507,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/dialog_template.inc"
 #include "gui/coordinates.inc"
 #include "gui/window_tree.inc"
+#include "gui/timers.inc"
+#include "gui/modal_dialog.inc"
 #include "gui/text_raster.inc"
 #include "gui/draw_text.inc"
 #include "gui/syscolors_draw.inc"
@@ -3664,6 +3666,18 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "BeginDeferWindowPos")) return BeginDeferWindowPos;
     if (!by_ordinal && ascii_equal_ci(function, "DeferWindowPos")) return DeferWindowPos;
     if (!by_ordinal && ascii_equal_ci(function, "EndDeferWindowPos")) return EndDeferWindowPos;
+    if (!by_ordinal && ascii_equal_ci(function, "SetTimer")) return SetTimer;
+    if (!by_ordinal && ascii_equal_ci(function, "KillTimer")) return KillTimer;
+    if (!by_ordinal && ascii_equal_ci(function, "DialogBoxParamW")) return DialogBoxParamW;
+    if (!by_ordinal && ascii_equal_ci(function, "DialogBoxParamA")) return DialogBoxParamA;
+    if (!by_ordinal && ascii_equal_ci(function, "DialogBoxIndirectParamW")) return DialogBoxIndirectParamW;
+    if (!by_ordinal && ascii_equal_ci(function, "DialogBoxIndirectParamA")) return DialogBoxIndirectParamA;
+    if (!by_ordinal && ascii_equal_ci(function, "EndDialog")) return EndDialog;
+    if (!by_ordinal && ascii_equal_ci(function, "IsDialogMessageW")) return IsDialogMessageW;
+    if (!by_ordinal && ascii_equal_ci(function, "IsDialogMessageA")) return IsDialogMessageA;
+    if (!by_ordinal && ascii_equal_ci(function, "GetKeyState")) return GetKeyState;
+    if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardState")) return GetKeyboardState;
+    if (!by_ordinal && ascii_equal_ci(function, "SetKeyboardState")) return SetKeyboardState;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgCtrlID")) return GetDlgCtrlID;
     if (!by_ordinal && ascii_equal_ci(function, "GetDlgItem")) return GetDlgItem;
     if (!by_ordinal && ascii_equal_ci(function, "SendDlgItemMessageW")) return SendDlgItemMessageW;

@@ -1,11 +1,18 @@
 # Resume state
 
-- Latest batch: system colors and software drawing (commit pending post-commit refresh).
+
+- Pending commit: modal dialog loops, per-thread timers and modal_dialogs regression.
+- Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0; 71 PASS, including `tests/modal_dialogs.exe`.
+- Notepad++: exit 127, USER32!SetWindowsHookExW; latest recorded import counts 408 resolved / 212 unimplemented.
+- Limitations: ANSI dialog-item conversion covers supported text messages; other messages are forwarded unchanged.
+- Next: commit modal work; run Notepad++; implement and test real hook chains.
+- Latest batch: system colors and software drawing (commit 6f5cc209b).
 - Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 70 PASS; tests/syscolors_draw.exe PASS; visible tests SKIP.
-- Latest suite Notepad++: exit 127, 408 resolved / 212 unimplemented; USER32!SetWindowsHookExW, WH_CALLWNDPROC (4). No visible top-level request or new crash observed.
+- Latest suite and post-commit Notepad++: exit 127, 408 resolved / 212 unimplemented; USER32!SetWindowsHookExW, WH_CALLWNDPROC (4). No visible top-level request or new crash observed.
 - Implemented cached shared system brushes, process-local color changes and notification, bitmap FillRect/FrameRect/InvertRect/DrawFocusRect, classic edges/frame controls, icon mask/alpha composition, DrawText layout and FreeType software glyph transport, GrayStringW and DrawStateW; added common fixed-profile SPI getters.
 - Limits: classic frame glyphs are approximate; native window-DC inversion is unsupported; text shaping/bidirectional layout and PNG/RLE icons remain unsupported. Unsupported SPI actions fail explicitly. System colors are process-local.
-- Next steps: verify the post-commit Notepad++ stop; implement the owner-requested modal dialog batch; then implement actual WH_CALLWNDPROC hooks and continue the Notepad++ loop.
+- Next steps: implement the owner-requested modal dialog batch; implement actual WH_CALLWNDPROC hooks; continue the Notepad++ loop.
+- Uncommitted work: this post-commit SESSION_STATE refresh.
 - Do not access the stash named solar-pro4 freebuff attempt.
 
 - Previous batch: window tree, reparenting and z-order (commit 3f85dd40c).

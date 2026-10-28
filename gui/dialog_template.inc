@@ -125,11 +125,26 @@ bad:
 
 static const uint16_t pe_dialog_class[]={'#','3','2','7','7','0',0};
 typedef intptr_t (__attribute__((ms_abi)) *pe_dlgproc)(HANDLE,DWORD,uintptr_t,intptr_t);
+__attribute__((ms_abi)) HANDLE GetNextDlgTabItem(HANDLE,HANDLE,BOOL);
+__attribute__((ms_abi)) BOOL EndDialog(HANDLE,intptr_t);
+static intptr_t pe_dialog_ansi_message(HANDLE,int,DWORD,uintptr_t,intptr_t);
 __attribute__((ms_abi)) intptr_t DefDlgProcW(HANDLE hwnd,DWORD msg,uintptr_t wp,intptr_t lp)
 {
     struct pe_window *w=pe_window_lookup(hwnd,false);
     if (!w) return 0;
     if (msg==0x31) return (intptr_t)w->dialog_font;
+    if (msg==0x400) return w->dialog_default_id ? (0x534bu<<16)|w->dialog_default_id : 0;
+    if (msg==0x401) { w->dialog_default_id=(uint16_t)wp; return 1; }
+    if (msg==0x28) {
+        HANDLE next=lp ? (HANDLE)wp : GetNextDlgTabItem(hwnd,GetFocus(),(BOOL)wp);
+        if (next) SetFocus(next);
+        return 0;
+    }
+    if (msg==0x10) {
+        HANDLE cancel=GetDlgItem(hwnd,2);
+        if (!cancel || IsWindowEnabled(cancel)) PostMessageW(hwnd,0x111,2,(intptr_t)cancel);
+        return 0;
+    }
     return DefWindowProcW(hwnd,msg,wp,lp);
 }
 __attribute__((ms_abi)) intptr_t DefDlgProcA(HANDLE hwnd,DWORD msg,uintptr_t wp,intptr_t lp)
@@ -198,7 +213,7 @@ static const uint16_t *pe_dialog_control_class(const uint16_t *name)
         case 0x83:return list; case 0x84:return scroll; case 0x85:return combo; }
     return name;
 }
-static HANDLE pe_dialog_create(HANDLE instance,const void *source,size_t size,HANDLE parent,pe_dlgproc proc,intptr_t param)
+static HANDLE pe_dialog_create(HANDLE instance,const void *source,size_t size,HANDLE parent,pe_dlgproc proc,intptr_t param,struct pe_modal_state *modal)
 {
     struct pe_dialog_template d;
     if (!pe_dialog_parse(source,size,&d)) return NULL;
@@ -225,6 +240,7 @@ static HANDLE pe_dialog_create(HANDLE instance,const void *source,size_t size,HA
     struct pe_window *w=pe_window_lookup(hwnd,true);
     if (!w) { hwnd=NULL; goto done; }
     w->dialog_font=font; font=NULL; w->dialog_base_x=bx; w->dialog_base_y=by;
+    w->modal=modal;if(modal)modal->hwnd=hwnd;
     SetWindowLongPtrW(hwnd,8,(intptr_t)proc);
     if (w->dialog_font) SendMessageW(hwnd,0x30,(uintptr_t)w->dialog_font,0);
     for (unsigned i=0;i<d.count;i++) {
@@ -239,11 +255,12 @@ static HANDLE pe_dialog_create(HANDLE instance,const void *source,size_t size,HA
             hwnd,(HANDLE)(uintptr_t)it->id,instance,it->extra);
         if (!c) { DWORD e=GetLastError(); DestroyWindow(hwnd); hwnd=NULL; SetLastError(e); goto done; }
         if (w->dialog_font) SendMessageW(c,0x30,(uintptr_t)w->dialog_font,0);
+        if ((uintptr_t)it->class_name==0x80 && (it->style&15u)==1) w->dialog_default_id=(uint16_t)it->id;
         if (!first && (it->style & 0x10000) && !(it->style & 0x08000000u) && (it->style & 0x10000000u)) first=c;
     }
     if (proc && proc(hwnd,0x110,(uintptr_t)first,param) && first && IsWindow(hwnd)) SetFocus(first);
     if (!IsWindow(hwnd)) { hwnd=NULL; goto done; }
-    if (d.style & 0x10000000u) ShowWindow(hwnd,5);
+    if ((d.style & 0x10000000u) && !(modal && __atomic_load_n(&modal->ended,__ATOMIC_ACQUIRE))) ShowWindow(hwnd,5);
 done:
     if (font) DeleteObject(font);
     if (menu) DestroyMenu(menu);
@@ -251,7 +268,7 @@ done:
     return hwnd;
 }
 __attribute__((ms_abi)) HANDLE CreateDialogIndirectParamW(HANDLE instance,const void *source,HANDLE parent,pe_dlgproc proc,intptr_t param)
-{ return pe_dialog_create(instance,source,PE_DIALOG_LIMIT,parent,proc,param); }
+{ return pe_dialog_create(instance,source,PE_DIALOG_LIMIT,parent,proc,param,NULL); }
 __attribute__((ms_abi)) HANDLE CreateDialogIndirectParamA(HANDLE instance,const void *source,HANDLE parent,pe_dlgproc proc,intptr_t param)
 { return CreateDialogIndirectParamW(instance,source,parent,proc,param); }
 __attribute__((ms_abi)) HANDLE CreateDialogParamW(HANDLE instance,const uint16_t *name,HANDLE parent,pe_dlgproc proc,intptr_t param)
@@ -259,7 +276,7 @@ __attribute__((ms_abi)) HANDLE CreateDialogParamW(HANDLE instance,const uint16_t
     HANDLE resource=FindResourceW(instance,name,(void *)5); if (!resource) return NULL;
     DWORD n=SizeofResource(instance,resource); void *src=LockResource(LoadResource(instance,resource));
     if (!src || !n) { SetLastError(87); return NULL; }
-    return pe_dialog_create(instance,src,n,parent,proc,param);
+    return pe_dialog_create(instance,src,n,parent,proc,param,NULL);
 }
 __attribute__((ms_abi)) HANDLE CreateDialogParamA(HANDLE instance,const char *name,HANDLE parent,pe_dlgproc proc,intptr_t param)
 {
@@ -271,11 +288,8 @@ __attribute__((ms_abi)) HANDLE CreateDialogParamA(HANDLE instance,const char *na
     return CreateDialogParamW(instance,s,parent,proc,param);
 }
 __attribute__((ms_abi)) intptr_t SendDlgItemMessageA(HANDLE parent,int id,DWORD msg,uintptr_t wp,intptr_t lp)
-{
-    if (msg==0xc) return SetDlgItemTextA(parent,id,(const char *)lp);
-    if (msg==0xd) return GetDlgItemTextA(parent,id,(char *)lp,(int)wp);
-    return SendDlgItemMessageW(parent,id,msg,wp,lp);
-}
+{ return pe_dialog_ansi_message(parent,id,msg,wp,lp); }
+
 /* Child windows are linked newest-first. Reverse them to recover creation/tab order. */
 static HANDLE pe_dialog_next(HANDLE parent,HANDLE child,BOOL previous,bool group)
 {

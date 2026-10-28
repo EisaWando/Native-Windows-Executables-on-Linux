@@ -240,6 +240,19 @@ static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE hwnd, DWORD msg,
 			return (intptr_t)c->image;
 	}
 	if (kind == 3) {
+        if (msg == 0xc2) { /* EM_REPLACESEL, UTF-16 payload */
+            if (!lp) { SetLastError(87); return 0; }
+            unsigned oldlen=lstrlenW(text), add=lstrlenW((const uint16_t *)lp);
+            unsigned start=c->min<0?0:(unsigned)c->min, end=c->max<0?oldlen:(unsigned)c->max;
+            if(start>oldlen)start=oldlen;if(end>oldlen)end=oldlen;if(start>end){unsigned t=start;start=end;end=t;}
+            if ((uint64_t)oldlen+add>1048576) {SetLastError(8);return 0;}
+            size_t bytes=((size_t)oldlen-(end-start)+add+1)*2;uint16_t *v=pe_raw_map(bytes);
+            if(!v){SetLastError(8);return 0;}
+            memcpy(v,text,start*2);memcpy(v+start,(const void *)lp,add*2);memcpy(v+start+add,text+end,(oldlen-end+1)*2);
+            BOOL ok=pe_control_text(w,v);raw_syscall3(SYS_munmap,(long)v,bytes,0);
+            if(ok)c->min=c->max=start+add;
+            return 0;
+        }
 		if (msg == 0xb1) {
 			int len = lstrlenW(text);
 			c->min = (int)wp < 0 ? len : (int)wp;
@@ -256,6 +269,17 @@ static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE hwnd, DWORD msg,
 		}
 	}
 	if (kind == 4 || kind == 5) {
+        if (msg==(kind==4?0x18f:0x14c) || msg==(kind==4?0x1a2:0x158) || msg==(kind==4?0x18c:0x14d)) {
+            if(!lp || !c->count)return -1;
+            const uint16_t *wanted=(const uint16_t *)lp;bool exact=msg==(kind==4?0x1a2:0x158);
+            unsigned start=((int)wp<0 || wp>=c->count)?0:((unsigned)wp+1)%c->count;
+            for(unsigned k=0;k<c->count;k++) {
+                unsigned i=(start+k)%c->count;const uint16_t *v=c->items[i].text;unsigned j=0;
+                while(wanted[j] && v[j] && pe_reg_fold(wanted[j])==pe_reg_fold(v[j]))j++;
+                if(!wanted[j] && (!exact || !v[j])) {if(msg==(kind==4?0x18c:0x14d))c->selection=i;return i;}
+            }
+            return -1;
+        }
 		if (msg == (kind == 4 ? 0x180 : 0x143))
 			return pe_control_insert(c, -1, (const uint16_t *)lp,
 						 0);
