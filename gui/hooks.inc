@@ -1,9 +1,16 @@
-/* Process-local hook chains. Records remain allocated while callbacks may refer
- * to them; unlinking makes their GUI handles immediately invalid. */
+/* Removed records remain pinned until all active dispatches finish. */
 typedef intptr_t (__attribute__((ms_abi)) *pe_hook_proc)(int, uintptr_t, intptr_t);
 struct pe_hook { struct pe_hook *next; HANDLE handle; pe_hook_proc proc; DWORD tid; int type; bool removed; };
 struct pe_hook_frame { struct pe_hook_frame *prev; struct pe_hook *current; int type; DWORD tid; };
 static struct pe_hook *pe_hooks;
+static unsigned pe_hook_dispatches;
+static void pe_hook_reap(void)
+{
+    if(pe_hook_dispatches) return;
+    struct pe_hook **link=&pe_hooks;
+    while(*link) { struct pe_hook *h=*link; if(!h->removed) { link=&h->next; continue; }
+        *link=h->next; raw_syscall3(SYS_munmap,(long)h,sizeof(*h),0); }
+}
 static intptr_t pe_hook_next(struct pe_ui *u, struct pe_hook *start, int type, DWORD tid, int code, uintptr_t wp, intptr_t lp)
 {
     struct pe_hook *h = start;
@@ -23,8 +30,10 @@ static intptr_t pe_hook_next(struct pe_ui *u, struct pe_hook *start, int type, D
 static intptr_t pe_hook_dispatch(int type, int code, uintptr_t wp, intptr_t lp)
 {
     struct pe_ui *u=pe_ui_current(); if (!u) return 0;
-    struct pe_hook *start; { PE_STATE_GUARD; start=pe_hooks; }
-    return pe_hook_next(u,start,type,u->tid,code,wp,lp);
+    struct pe_hook *start; { PE_STATE_GUARD; pe_hook_dispatches++; start=pe_hooks; }
+    intptr_t result=pe_hook_next(u,start,type,u->tid,code,wp,lp);
+    { PE_STATE_GUARD; pe_hook_dispatches--; pe_hook_reap(); }
+    return result;
 }
 __attribute__((ms_abi)) intptr_t CallNextHookEx(HANDLE ignored,int code,uintptr_t wp,intptr_t lp)
 {
@@ -50,7 +59,7 @@ __attribute__((ms_abi)) BOOL UnhookWindowsHookEx(HANDLE handle)
 {
     PE_STATE_GUARD; struct pe_gui_object *o=pe_gui_lookup(handle,PE_GUI_HOOK);
     if (!o) { SetLastError(1404); return 0; }
-    o->hook->removed=true; pe_gui_drop(o); return 1;
+    o->hook->removed=true; pe_gui_drop(o); pe_hook_reap(); return 1;
 }
 __attribute__((ms_abi)) HANDLE SetWindowsHookW(int type,pe_hook_proc proc)
 { return SetWindowsHookExW(type,proc,NULL,GetCurrentThreadId()); }

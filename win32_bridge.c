@@ -3538,6 +3538,7 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoSizeW")) return GetFileVersionInfoSizeW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoSizeA")) return GetFileVersionInfoSizeA;
     if (!by_ordinal && ascii_equal_ci(function, "VerQueryValueW")) return VerQueryValueW;
+    if (!by_ordinal && ascii_equal_ci(function, "VerQueryValueA")) return VerQueryValueA;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoW")) return GetFileVersionInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoA")) return GetFileVersionInfoA;
     if (!by_ordinal && ascii_equal_ci(function, "CreateFileMappingW")) return CreateFileMappingW;

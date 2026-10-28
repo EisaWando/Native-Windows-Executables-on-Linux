@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
+- Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.
+- Post-commit Notepad++: exit 127, dbghelp!ImageNtHeader, 425 resolved / 195 unimplemented.
+- Limitations: SEC_RESERVE returns ERROR_NOT_SUPPORTED; VirtualQuery covers tracked views only; mapped filenames use host paths; named mapping access rights and shared image backing are incomplete; image relocations are not applied.
+- Next: implement SEC_RESERVE and strengthen mapping semantics; implement VerQueryValueA and hook record reuse; continue Notepad++ at ImageNtHeader.
+
 - Current commit: e3b9d04ed, bounded PE image layout parser and fixture test.
 - Full suite: exit 0, 74 PASS, including tests/pe_image.exe.
 - Post-commit Notepad++: exit 127, KERNEL32!CreateFileMappingW, 422 resolved / 198 unimplemented.

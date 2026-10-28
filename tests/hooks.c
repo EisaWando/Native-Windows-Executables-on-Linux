@@ -3,6 +3,12 @@ static HHOOK first, second;
 static int sequence, good=1;
 static int returned, retrieved;
 static int veto, saw_create, saw_key, saw_filter;
+static HHOOK self_hook; static int self_calls;
+static LRESULT CALLBACK self_removing(int code,WPARAM wp,LPARAM lp) {
+    CWPSTRUCT *c=(CWPSTRUCT*)lp;
+    if(code==HC_ACTION && c->message==WM_APP+3) { self_calls++; if(!UnhookWindowsHookEx(self_hook)) good=0; }
+    return CallNextHookEx(NULL,code,wp,lp);
+}
 static LRESULT CALLBACK filter_hook(int code,WPARAM wp,LPARAM lp) {
     MSG *m=(MSG*)lp; if(code==MSGF_DIALOGBOX && m->message==WM_APP+4) saw_filter++;
     return CallNextHookEx(NULL,code,wp,lp);
@@ -55,6 +61,9 @@ void mainCRTStartup(void) {
     if(!first || !second || !after || !get || SendMessageW(h,WM_APP+1,0,0)!=42 || !good || sequence!=2 || returned!=1) ExitProcess(3);
     MSG msg; if(!PostMessageW(h,WM_APP+2,0,0) || !PeekMessageW(&msg,h,WM_APP+2,WM_APP+2,PM_REMOVE) || msg.wParam!=123 || retrieved!=1 || !good) ExitProcess(8);
     if(!UnhookWindowsHookEx(after) || !UnhookWindowsHookEx(get)) ExitProcess(9);
+    self_hook=SetWindowsHookExW(WH_CALLWNDPROC,self_removing,NULL,GetCurrentThreadId());
+    if(!self_hook) ExitProcess(15); SendMessageW(h,WM_APP+3,0,0); SendMessageW(h,WM_APP+3,0,0);
+    if(self_calls!=1 || !good) ExitProcess(16);
     HHOOK cbt=SetWindowsHookExW(WH_CBT,cbt_hook,NULL,GetCurrentThreadId());
     HHOOK key=SetWindowsHookExW(WH_KEYBOARD,key_hook,NULL,GetCurrentThreadId());
     veto=1; HWND blocked=CreateWindowExW(0,c.lpszClassName,L"",0,0,0,1,1,NULL,NULL,c.hInstance,NULL);

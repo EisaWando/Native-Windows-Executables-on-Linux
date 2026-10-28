@@ -56,11 +56,11 @@ done:
 __attribute__((ms_abi)) DWORD GetFileVersionInfoSizeW(const uint16_t *path,DWORD *handle)
 { DWORD n=0; if(handle) *handle=0; return pe_version_read(path,NULL,0,&n)?n:0; }
 __attribute__((ms_abi)) DWORD GetFileVersionInfoSizeA(const char *path,DWORD *handle)
-{ uint16_t w[4096]; if(!path || !MultiByteToWideChar(65001,8,path,-1,w,4096)) { SetLastError(87); return 0; } return GetFileVersionInfoSizeW(w,handle); }
+{ uint16_t w[4096]; if(!path || !MultiByteToWideChar(65001,8,path,-1,w,4096)) { SetLastError(87); return 0; } DWORD n=GetFileVersionInfoSizeW(w,handle); return n && n<=UINT32_MAX/4 ? n*4 : 0; }
 __attribute__((ms_abi)) BOOL GetFileVersionInfoW(const uint16_t *path,DWORD handle,DWORD size,void *buffer)
 { (void)handle; DWORD n; if(!buffer) { SetLastError(87); return 0; } return pe_version_read(path,buffer,size,&n); }
 __attribute__((ms_abi)) BOOL GetFileVersionInfoA(const char *path,DWORD handle,DWORD size,void *buffer)
-{ uint16_t w[4096]; if(!path || !MultiByteToWideChar(65001,8,path,-1,w,4096)) { SetLastError(87); return 0; } return GetFileVersionInfoW(w,handle,size,buffer); }
+{ uint16_t w[4096]; if(!path || !MultiByteToWideChar(65001,8,path,-1,w,4096)) { SetLastError(87); return 0; } DWORD n=GetFileVersionInfoSizeW(w,NULL); if(!n) return 0; if(size<n*4) { SetLastError(122); return 0; } return GetFileVersionInfoW(w,handle,size,buffer); }
 /* VS_VERSIONINFO nodes store a UTF-16 key, aligned value and aligned children. */
 struct pe_version_node { size_t end, value, children; uint16_t type, length; };
 static bool pe_version_node(const unsigned char *p, size_t off, size_t limit, struct pe_version_node *node)
@@ -76,7 +76,7 @@ static bool pe_version_node(const unsigned char *p, size_t off, size_t limit, st
     *node=(struct pe_version_node){end,value,(value+bytes+3)&~(size_t)3,type,n};
     return true;
 }
-__attribute__((ms_abi)) BOOL VerQueryValueW(const void *block,const uint16_t *path,void **out,unsigned *length)
+static BOOL pe_version_query(const void *block,const uint16_t *path,void **out,unsigned *length,bool *text_value)
 {
     if(!block || !path || !out || !length) { SetLastError(87); return 0; }
     *out=NULL; *length=0;
@@ -102,5 +102,23 @@ __attribute__((ms_abi)) BOOL VerQueryValueW(const void *block,const uint16_t *pa
         if(!found) { SetLastError(1813); return 0; }
         while(*path=='\\') path++;
     }
-    (void)off; *out=(void *)(p+node.value); *length=node.length; return 1;
+    (void)off; *out=(void *)(p+node.value); *length=node.length; if(text_value) *text_value=node.type==1; return 1;
+}
+
+__attribute__((ms_abi)) BOOL VerQueryValueW(const void *block,const uint16_t *path,void **out,unsigned *length)
+{ return pe_version_query(block,path,out,length,NULL); }
+/* ANSI buffers supplied by GetFileVersionInfoA include a conversion area. */
+__attribute__((ms_abi)) BOOL VerQueryValueA(const void *block,const char *path,void **out,unsigned *length)
+{
+    uint16_t wide[1024]; if(!path || !MultiByteToWideChar(65001,8,path,-1,wide,1024)) { SetLastError(87); return 0; }
+    bool text=false; if(!pe_version_query(block,wide,out,length,&text)) return 0;
+    if(text && *length) {
+        size_t total=(size_t)((const unsigned char*)block)[0]|((size_t)((const unsigned char*)block)[1]<<8);
+        size_t offset=(const unsigned char*)*out-(const unsigned char*)block;
+        if(offset>=total) { SetLastError(13); return 0; }
+        char *target=(char*)block+total+offset*3; size_t capacity=(total-offset)*3;
+        int n=WideCharToMultiByte(65001,0,(const uint16_t*)*out,*length,target,(int)capacity,NULL,NULL);
+        if(!n) return 0; *out=target; *length=n;
+    }
+    return 1;
 }
