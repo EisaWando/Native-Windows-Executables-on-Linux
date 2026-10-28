@@ -1,11 +1,12 @@
 # Resume state
 
 
-- Pending commit: modal dialog loops, per-thread timers and modal_dialogs regression.
+- Current commit: 3e303e433 — modal dialog loops and per-thread timers.
 - Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0; 71 PASS, including `tests/modal_dialogs.exe`.
-- Notepad++: exit 127, USER32!SetWindowsHookExW; latest recorded import counts 408 resolved / 212 unimplemented.
+- Post-commit Notepad++: exit 127, USER32!SetWindowsHookExW; 416 resolved / 204 unimplemented.
 - Limitations: ANSI dialog-item conversion covers supported text messages; other messages are forwarded unchanged.
-- Next: commit modal work; run Notepad++; implement and test real hook chains.
+- Uncommitted work: this SESSION_STATE refresh.
+- Next: implement and test hook chains; run the full suite and commit; resume Notepad++ startup.
 - Latest batch: system colors and software drawing (commit 6f5cc209b).
 - Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 70 PASS; tests/syscolors_draw.exe PASS; visible tests SKIP.
 - Latest suite and post-commit Notepad++: exit 127, 408 resolved / 212 unimplemented; USER32!SetWindowsHookExW, WH_CALLWNDPROC (4). No visible top-level request or new crash observed.
