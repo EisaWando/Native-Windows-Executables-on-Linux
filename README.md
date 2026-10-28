@@ -1,6 +1,6 @@
 # binfmt_pe — Native Windows Executables on Linux, Without Wine
 
-> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader. Console programs run end to end, including multi-threaded ones. **Notepad++ 8.9.8 reaches hidden main-window creation, subclass setup and menu resource loading. It does not show a window yet.** This README is honest about what works, what doesn't, and where help is needed.
+> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader. Console programs run end to end, including multi-threaded ones. For Notepad++ 8.9.8 the import resolver covers **408 of its 620 imports**; it reaches hidden main-window creation, subclass setup, menu resource loading, window tree, coordinate mapping and system-color drawing. **It does not show a visible window yet.** This README is honest about what works, what doesn't, and where help is needed.
 
 ---
 
@@ -70,12 +70,19 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 
 ## Current status
 
-### Verified by real runs (`bash tests/run_all.sh`)
+### Verified by real runs (`bash tests/run_all.sh`, 70 PASS, display tests skipped)
 
 - [x] Hidden/zero-size windows, properties, subclass chains and cross-thread messages
+- [x] Window tree: parent/child relationships, reparenting and newest-first z-order with hit testing
+- [x] Coordinates: parent-client mapping and the menu strip behind `ScreenToClient`/`ClientToScreen`
+- [x] Update regions: invalid-rect accumulation, erase handling and `UpdateWindow`
+- [x] Image lists, icons and cursors with mask/alpha composition
+- [x] Fonts: FreeType software glyph transport, `DrawText` layout, `ExtTextOutW`, `GrayStringW`, `DrawStateW`
+- [x] System-color drawing: cached shared system brushes, process-local `SetSysColor`, `FillRect`/`FrameRect`/`InvertRect`/`DrawFocusRect`, classic edges and frame controls
+- [x] Dialogs: modeless standard and extended templates plus `CreateDialogIndirectParamW`/`CreateDialogParamW` (modal dialogs are not implemented)
 - [x] Headless system/common controls with tested state for selected messages
 - [x] Main-image PE resources, menu templates, strings and accelerator tables
-- [ ] Complete control behavior, resource image rasterization and dialogs
+- [ ] Complete control behavior, resource image rasterization and modal dialogs
 - [ ] Native menu strip/popup display verification (presenter implemented)
 
 - [x] MZ/PE (PE32+) parsing with bounds checks; PE headers and all sections mapped at their virtual addresses
@@ -93,10 +100,13 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] First visible Unicode Win32 windows: message loops, software fills/lines/pixels, FreeType text, X11/XWayland presentation, resize and basic keyboard/mouse input
 - [x] C++ exception metadata decoder (diagnostic) and `RtlPcToFileHeader`
 - [x] Process-local registry tree with A/W APIs and a seeded Windows 10 profile
+- [x] Process-local clipboard: `CF_TEXT`/`CF_OEMTEXT`/`CF_UNICODETEXT`, delayed rendering, owner and update notifications
 - [x] SHA-256/HMAC, security identity queries and explicit unavailable trust-provider results
 - [x] Concurrent one-time initialization, per-thread caret state, COM apartment/task-memory bookkeeping and dialog-item helpers
 
 ### In progress / next
+- [ ] `WH_CALLWNDPROC` hooks (the current Notepad++ stop is `SetWindowsHookExW` with `WH_CALLWNDPROC`)
+- [ ] Modal dialogs (`DialogBoxParamW`, `IsDialogMessage`)
 - [ ] Registry persistence, complete Unicode name folding and security descriptors
 - [ ] Full GUI compatibility: complete child controls, menus/dialogs, complete message semantics and GDI, complex text shaping and native Wayland
 - [ ] x64 structured/C++ exception handling: `.pdata` unwind (`RtlLookupFunctionEntry`, `RtlVirtualUnwind`, `RtlUnwindEx`, `RaiseException`)
@@ -106,6 +116,8 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, and about a dozen DLLs with 1-3 imports each. The window system (USER32 + GDI32) is more than 45% of the surface and is the main remaining cost.
+
+**Current count: 408 resolved, 212 unimplemented.**
 
 ### GUI design
 
@@ -119,10 +131,17 @@ See [the design](docs/GUI_DESIGN.md).
 The first milestone supports custom Unicode top-level windows. The demo draws a
 banner and text, repaints on resize, and closes with Escape or the window-manager
 close button. This is not yet a general Windows desktop/control implementation;
-Notepad++ reaches its hidden editor/control initialization. See
+Notepad++ still stops during startup on an unimplemented API, and no visible
+main window has been requested. See
 [the session checkpoint](docs/SESSION_STATE.md) for the latest tested API stop.
 
 ---
+
+## Known limitations
+
+- **GUI:** controls are largely headless, modal dialogs and `IsDialogMessage` are missing, and classic frame glyphs are approximate. Native window-DC inversion is unsupported; unsupported `SystemParametersInfo` actions fail explicitly. System colors are process-local, deferred native updates are sequential, and persistent X11 topmost depends on the window manager.
+- **Windows APIs:** the clipboard is process-local; only an en-US profile exists; case mapping covers simple one-to-one mappings only (no sort keys, no bidirectional text shaping); PNG/RLE icons are unsupported; `GetProcAddress` returns NULL for anything not really implemented.
+- **Processes and exceptions:** x64 unwind/SEH and C++ exceptions are not implemented.
 
 ## Honest caveats
 
@@ -195,7 +214,7 @@ Please use a **virtual machine** for development.
 In spirit, an alternative architecture with the same goal: running Windows programs on Linux. The difference is where the loading happens (in the kernel via `binfmt`) and the intent to make a `.exe` behave like any other executable.
 
 **Does Notepad++ run?**
-Its startup code creates a hidden main window and loads its menu resource. It does not show a window yet.
+Its startup code creates a hidden main window, loads its menu resource and reaches window-tree, coordinate and system-color drawing calls. It does not show a visible window yet, and its run still ends on an unimplemented API.
 
 **Will it run games / Photoshop / my work software?**
 Not today, and possibly not for a long time. Console programs and a small custom-window GUI demo work; complex applications remain unsupported.
