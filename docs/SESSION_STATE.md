@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 868c753fc, PE file version-resource retrieval.
+- Full suite: exit 0, 73 PASS, including tests/version.exe.
+- Post-commit Notepad++: exit 127, VERSION!VerQueryValueW, 421 resolved / 199 unimplemented.
+- Limitations: version resources use the first numeric resource and language; VerQueryValue remains unimplemented; 128 MiB PE file limit.
+- Next: implement and test VerQueryValue; continue Notepad++ import loop; revisit menu-loop hooks.
+
 - Current commit: 78a67ba57, CBT, keyboard, mouse and dialog filter hook dispatch.
 - Full suite: exit 0, 72 PASS; hook regression covers CBT veto, keyboard and modal filter.
 - Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.

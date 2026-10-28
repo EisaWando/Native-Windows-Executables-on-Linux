@@ -61,3 +61,46 @@ __attribute__((ms_abi)) BOOL GetFileVersionInfoW(const uint16_t *path,DWORD hand
 { (void)handle; DWORD n; if(!buffer) { SetLastError(87); return 0; } return pe_version_read(path,buffer,size,&n); }
 __attribute__((ms_abi)) BOOL GetFileVersionInfoA(const char *path,DWORD handle,DWORD size,void *buffer)
 { uint16_t w[4096]; if(!path || !MultiByteToWideChar(65001,8,path,-1,w,4096)) { SetLastError(87); return 0; } return GetFileVersionInfoW(w,handle,size,buffer); }
+/* VS_VERSIONINFO nodes store a UTF-16 key, aligned value and aligned children. */
+struct pe_version_node { size_t end, value, children; uint16_t type, length; };
+static bool pe_version_node(const unsigned char *p, size_t off, size_t limit, struct pe_version_node *node)
+{
+    if (off>limit || limit-off<6) return false;
+    unsigned size=p[off]|(p[off+1]<<8), n=p[off+2]|(p[off+3]<<8), type=p[off+4]|(p[off+5]<<8);
+    if(size<6 || size>limit-off || type>1) return false;
+    size_t end=off+size, key=off+6;
+    while(key+2<=end && (p[key] || p[key+1])) key+=2;
+    if(key+2>end) return false;
+    size_t value=(key+2+3)&~(size_t)3, bytes=type ? (size_t)n*2 : n;
+    if(value>end || bytes>end-value) return false;
+    *node=(struct pe_version_node){end,value,(value+bytes+3)&~(size_t)3,type,n};
+    return true;
+}
+__attribute__((ms_abi)) BOOL VerQueryValueW(const void *block,const uint16_t *path,void **out,unsigned *length)
+{
+    if(!block || !path || !out || !length) { SetLastError(87); return 0; }
+    *out=NULL; *length=0;
+    const unsigned char *p=block; size_t total=(size_t)p[0]|((size_t)p[1]<<8), off=0;
+    struct pe_version_node node;
+    if(!pe_version_node(p,0,total,&node)) { SetLastError(13); return 0; }
+    while(*path=='\\') path++;
+    while(*path) {
+        const uint16_t *component=path; while(*path && *path!='\\') path++;
+        size_t chars=(size_t)(path-component); bool found=false;
+        for(size_t child=node.children; child<node.end;) {
+            struct pe_version_node candidate;
+            if(!pe_version_node(p,child,node.end,&candidate)) { SetLastError(13); return 0; }
+            size_t key=child+6, i=0;
+            while(i<chars && key+2<=candidate.end) {
+                uint16_t a=p[key]|((uint16_t)p[key+1]<<8), b=component[i];
+                if(a>='A' && a<='Z') a+=32; if(b>='A' && b<='Z') b+=32;
+                if(a!=b) break; key+=2; i++;
+            }
+            if(i==chars && key+2<=candidate.end && !p[key] && !p[key+1]) { off=child; node=candidate; found=true; break; }
+            size_t next=(candidate.end+3)&~(size_t)3; if(next<=child) break; child=next;
+        }
+        if(!found) { SetLastError(1813); return 0; }
+        while(*path=='\\') path++;
+    }
+    (void)off; *out=(void *)(p+node.value); *length=node.length; return 1;
+}
