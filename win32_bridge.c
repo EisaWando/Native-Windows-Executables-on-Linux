@@ -1617,19 +1617,20 @@ __attribute__((ms_abi)) int GetSystemMetrics(int index)
     default: return 0; /* absent features/unsupported metric */
     }
 }
-__attribute__((ms_abi)) DWORD GetSysColor(int index)
-{
-    /* COLORREF (BGR), deterministic light desktop colors, not dark-mode policy. */
-    static const DWORD colors[31] = {
+static DWORD pe_system_colors[31] = {
         0xc8c8c8, 0, 0xd77800, 0xbfcddb, 0xf0f0f0, 0xffffff, 0x646464,
         0, 0, 0xffffff, 0xb4b4b4, 0xfcf7f4, 0xababab, 0xd77800, 0xffffff,
         0xf0f0f0, 0xa0a0a0, 0x6d6d6d, 0, 0, 0xffffff, 0x696969,
         0xe3e3e3, 0, 0xffffe1, 0, 0xcc6600, 0xead1b9, 0xf2e4d7,
         0xd77800, 0xf0f0f0
     };
+__attribute__((ms_abi)) DWORD GetSysColor(int index)
+{
+    PE_STATE_GUARD;
     if (index < 0 || index >= 31) { SetLastError(87); return 0; }
-    return colors[index];
+    return pe_system_colors[index];
 }
+
 struct pe_nonclient {
     uint32_t size; int32_t border, scroll_width, scroll_height, caption_width, caption_height;
     struct pe_logfont caption_font;
@@ -1673,6 +1674,15 @@ __attribute__((ms_abi)) BOOL SystemParametersInfoW(unsigned action, unsigned par
     case 0x48: /* ANIMATIONINFO */
         if (*(DWORD *)out != 8) { SetLastError(87); return 0; }
         ((DWORD *)out)[1] = 0; return 1;
+    /* Fixed user-profile settings for read-only SPI queries. */
+    case 0x0001: *(DWORD *)out = 1; return 1; /* BEEP */
+    case 0x0003: ((int32_t *)out)[0]=6; ((int32_t *)out)[1]=10; ((int32_t *)out)[2]=1; return 1;
+    case 0x000a: *(DWORD *)out = 31; return 1; /* KEYBOARDSPEED */
+    case 0x0016: *(DWORD *)out = 1; return 1; /* KEYBOARDDELAY */
+    case 0x0026: *(DWORD *)out = 1; return 1; /* DRAGFULLWINDOWS */
+    case 0x0070: *(DWORD *)out = 10; return 1; /* MOUSESPEED */
+    case 0x1012: *(DWORD *)out = 0; return 1; /* MENUFADE */
+    case 0x1042: *(DWORD *)out = 1; return 1; /* CLIENTAREAANIMATION */
     case 0x68: case 0x6c: *(DWORD *)out = 3; return 1;
     case 0x200a: *(DWORD *)out = 2; return 1;
     case 0x200c: *(DWORD *)out = 1400; return 1;
@@ -3497,6 +3507,11 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/dialog_template.inc"
 #include "gui/coordinates.inc"
 #include "gui/window_tree.inc"
+#include "gui/text_raster.inc"
+#include "gui/draw_text.inc"
+#include "gui/syscolors_draw.inc"
+#include "gui/draw_icon.inc"
+#include "gui/draw_state.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
 
@@ -4014,6 +4029,19 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetDC")) return GetDC;
     if (!by_ordinal && ascii_equal_ci(function, "ReleaseDC")) return ReleaseDC;
     if (!by_ordinal && ascii_equal_ci(function, "GetSystemMetrics")) return GetSystemMetrics;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawTextW")) return DrawTextW;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawTextA")) return DrawTextA;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawTextExW")) return DrawTextExW;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawEdge")) return DrawEdge;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawFrameControl")) return DrawFrameControl;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawIconEx")) return DrawIconEx;
+    if (!by_ordinal && ascii_equal_ci(function, "GrayStringW")) return GrayStringW;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawStateW")) return DrawStateW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetSysColorBrush")) return GetSysColorBrush;
+    if (!by_ordinal && ascii_equal_ci(function, "SetSysColors")) return SetSysColors;
+    if (!by_ordinal && ascii_equal_ci(function, "FrameRect")) return FrameRect;
+    if (!by_ordinal && ascii_equal_ci(function, "InvertRect")) return InvertRect;
+    if (!by_ordinal && ascii_equal_ci(function, "DrawFocusRect")) return DrawFocusRect;
     if (!by_ordinal && ascii_equal_ci(function, "GetSysColor")) return GetSysColor;
     if (!by_ordinal && ascii_equal_ci(function, "SystemParametersInfoW")) return SystemParametersInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterClassExW")) return RegisterClassExW;

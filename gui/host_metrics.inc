@@ -72,3 +72,33 @@ static void native_font_query(struct pg_packet *p)
 	}
 	FT_Done_Face(temp.face);
 }
+
+/* Fetch a bounded chunk of a FreeType glyph coverage bitmap for memory DCs.
+ * The host remains display-independent: no X11 surface is needed. */
+static void native_font_glyph(struct pg_packet *p)
+{
+    struct surface temp={0};
+    uint32_t cp=(uint32_t)p->a, offset=(uint32_t)p->b;
+    int64_t requested=p->c;
+    unsigned height=requested<0?(requested < -256 ? 256 : -requested):(requested>256?256:requested);
+    if (!height) height=12;
+    p->status=font(&temp,p->text,height);
+    if (p->status) return;
+    if (FT_Load_Char(temp.face,cp,FT_LOAD_RENDER)) { p->status=13; FT_Done_Face(temp.face); return; }
+    FT_GlyphSlot g=temp.face->glyph;
+    FT_Bitmap *bm=&g->bitmap;
+    uint64_t total=(uint64_t)bm->width*bm->rows;
+    if (total>65536 || offset>total || (bm->pixel_mode!=FT_PIXEL_MODE_GRAY && bm->pixel_mode!=FT_PIXEL_MODE_MONO && total)) {
+        p->status=50;FT_Done_Face(temp.face);return;
+    }
+    p->a=bm->width;p->b=bm->rows;p->c=g->bitmap_left;p->d=g->bitmap_top;
+    p->color=(uint32_t)(g->advance.x>>6);p->background=(uint32_t)((temp.face->size->metrics.ascender+63)>>6);p->flags=total;
+    size_t n=total-offset; if (n>PG_TEXT-1) n=PG_TEXT-1;
+    for (size_t i=0;i<n;i++) {
+        size_t pos=offset+i;unsigned row=pos/bm->width,col=pos%bm->width;
+        const unsigned char *line=bm->buffer+(bm->pitch>=0?(long)row*bm->pitch:(long)(bm->rows-1-row)*(-bm->pitch));
+        p->text[i]=bm->pixel_mode==FT_PIXEL_MODE_MONO ? ((line[col/8] & (0x80u>>(col%8)))?255:0) : line[col];
+    }
+    p->length=n;
+    FT_Done_Face(temp.face);
+}

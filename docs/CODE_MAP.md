@@ -22,6 +22,11 @@
 | `gui/update_region.inc` | Exact client update regions, erase/paint cycles, child redraw propagation and DC exclusion | `GetUpdateRgn`, `GetUpdateRect`, `InvalidateRgn`, `ValidateRgn`, `RedrawWindow`, `ExcludeUpdateRgn`, `BeginPaint`, `EndPaint` |
 | `tests/update_rgn.c` | Empty/simple/complex update regions, partial validation, erase callbacks, children, DC clipping and invalid handles | `mainCRTStartup`, `proc` |
 | `gui/coordinates.inc` | Screen/client mapping, logical cursor, queued message positions, and geometric hit testing | `ScreenToClient`, `ClientToScreen`, `MapWindowPoints`, `WindowFromPoint`, `GetMessagePos` |
+| `gui/syscolors_draw.inc` | Cached system brushes, mutable colors and software frame/edge controls | `GetSysColorBrush`, `SetSysColors`, `FrameRect`, `DrawEdge`, `DrawFrameControl` |
+| `gui/text_raster.inc` | FreeType glyph coverage transport into software bitmap DCs | `pe_text_raster` |
+| `gui/draw_text.inc` | DrawText layout, alignment, clipping, ellipsis and UTF-8 ANSI conversion | `DrawTextW/A`, `DrawTextExW` |
+| `gui/draw_icon.inc` | Icon/cursor DIB image and mask composition | `DrawIconEx` |
+| `gui/draw_state.inc` | Temporary-mask state and disabled text drawing | `DrawStateW`, `GrayStringW` |
 | `gui/bridge.inc` | Core GUI data structures (HWND/HDC object tables, message loop, pe_window/pe_dc, RegisterClass, CreateWindow, DestroyWindow, message pump) | `pe_window_create`, `pe_dc_get`, `RegisterClassExW`, `CreateWindowExW`, `DestroyWindow`, `GetMessageW`, `DispatchMessageW` |
 | `gui/caret.inc` | Text-insertion caret: creation, show/hide, blink timer | `GetCaretBlinkTime`, `SetCaretBlinkTime`, `CreateCaret`, `DestroyCaret`, `ShowCaret`, `HideCaret` |
 | `gui/controls.inc` | Built-in window class registration (BUTTON, EDIT, LISTBOX, etc.) and InitCommonControls | `InitCommonControlsEx`, `InitCommonControls`, `pe_builtin_class`, `pe_control_proc` |
@@ -90,5 +95,6 @@
 | `tests/trust.c` | Tests WinVerifyTrust returns expected error | `mainCRTStartup` |
 | `tests/utf.c` | Tests MultiByteToWideChar / WideCharToMultiByte UTF-8/UTF-16 | `mainCRTStartup` |
 | `tests/window_demo.c` | Simple window creation/message-loop demo (GUI display test) | `mainCRTStartup`, `window_proc` |
+| `tests/syscolors_draw.c` | System color and software drawing pixel/behavior tests | `mainCRTStartup` |
 | `tests/window_tree.c` | Reparenting, enumeration, z-order, hit testing and deferred movement | `mainCRTStartup`, `visit` |
 | `tests/windows.c` | Tests CreateWindow, subclassing, hidden windows, SetProp/GetProp | `mainCRTStartup`, `test_hidden_windows`, `test_subclass`, `proc` |

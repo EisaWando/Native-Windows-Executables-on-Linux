@@ -30,6 +30,7 @@ done
 x86_64-w64-mingw32-windres tests/imagelist.rc -o "$work/imagelist.o" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/imagelist.exe tests/imagelist.c "$work/imagelist.o" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-windres tests/ordinal_icons.rc -o "$work/ordinal-icons.o" || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/syscolors_draw.exe tests/syscolors_draw.c "$work/ordinal-icons.o" -lkernel32 -lgdi32 -luser32 || exit 1
 x86_64-w64-mingw32-dlltool --input-def tests/commctl_ordinals.def --output-lib "$work/commctl-ordinals.a" || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/commctl_ordinals.exe tests/commctl_ordinals.c "$work/ordinal-icons.o" "$work/commctl-ordinals.a" -lkernel32 -lgdi32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-windres tests/dialogs.rc -o "$work/dialogs.o" || exit 1
@@ -67,6 +68,7 @@ check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/bitmaps.exe 0 'bitmaps ok' timeout 15s tests/bitmaps.exe
 check_pe tests/update_rgn.exe 0 'update rgn ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/update_rgn.exe
 check_pe tests/dialogs.exe 0 'dialogs ok' env DISPLAY= timeout 30s tests/dialogs.exe
+check_pe tests/syscolors_draw.exe 0 'syscolors draw ok' env DISPLAY= timeout 30s tests/syscolors_draw.exe
 check_pe tests/window_tree.exe 0 'window tree ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/window_tree.exe
 check_pe tests/coords.exe 0 'coords ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/coords.exe
 check_pe tests/clipboard.exe 0 'clipboard ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/clipboard.exe

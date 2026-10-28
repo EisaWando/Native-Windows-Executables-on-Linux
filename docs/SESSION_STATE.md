@@ -1,8 +1,16 @@
 # Resume state
 
-- Latest batch: window tree, reparenting and z-order (commit 3f85dd40c).
-- Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 69 PASS; tests/window_tree.exe PASS; visible tests SKIP.
-- Latest suite and post-commit Notepad++: exit 127, 400 resolved / 220 unimplemented, USER32!GetSysColorBrush ret=0x14008ea9d; no visible top-level request or new crash observed.
+- Latest batch: system colors and software drawing (commit pending post-commit refresh).
+- Last full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 70 PASS; tests/syscolors_draw.exe PASS; visible tests SKIP.
+- Latest suite Notepad++: exit 127, 408 resolved / 212 unimplemented; USER32!SetWindowsHookExW, WH_CALLWNDPROC (4). No visible top-level request or new crash observed.
+- Implemented cached shared system brushes, process-local color changes and notification, bitmap FillRect/FrameRect/InvertRect/DrawFocusRect, classic edges/frame controls, icon mask/alpha composition, DrawText layout and FreeType software glyph transport, GrayStringW and DrawStateW; added common fixed-profile SPI getters.
+- Limits: classic frame glyphs are approximate; native window-DC inversion is unsupported; text shaping/bidirectional layout and PNG/RLE icons remain unsupported. Unsupported SPI actions fail explicitly. System colors are process-local.
+- Next steps: verify the post-commit Notepad++ stop; implement the owner-requested modal dialog batch; then implement actual WH_CALLWNDPROC hooks and continue the Notepad++ loop.
+- Do not access the stash named solar-pro4 freebuff attempt.
+
+- Previous batch: window tree, reparenting and z-order (commit 3f85dd40c).
+- Previous full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` outside sandbox, exit 0, 69 PASS; tests/window_tree.exe PASS; visible tests SKIP.
+- Previous suite and post-commit Notepad++: exit 127, 400 resolved / 220 unimplemented, USER32!GetSysColorBrush ret=0x14008ea9d; no visible top-level request or new crash observed.
 - Limits: popup owner and parent still share metadata, so SetParent on an owned popup can return the owner instead of the desktop; owner-chain topmost propagation is not implemented. Deferred native updates are sequential, persistent X11 topmost depends on the window manager, and child controls remain headless.
 - Next steps: separate popup owners from parents and propagate topmost state; implement GetSysColorBrush; resume the owner-requested modal-dialog batch when quota allows.
 - Uncommitted work: this post-commit SESSION_STATE refresh.

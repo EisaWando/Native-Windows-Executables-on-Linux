@@ -1064,6 +1064,23 @@ __attribute__((ms_abi)) int FillRect(HANDLE dc, const struct pe_rect *r,
 			color = b->u.brush.color;
 		}
 	}
+    {
+        PE_STATE_GUARD;
+        struct pe_gui_object *d=pe_dc_lookup(dc);
+        if (!d) return 0;
+        if (d->type==PE_GDI_MEMDC) {
+            struct pe_gui_object *b=pe_gui_lookup(d->u.dc.bitmap,PE_GDI_BITMAP);
+            struct pe_raster *dst=b?pe_raster_resource(b):NULL;
+            if (!dst) return 0;
+            int l=r->left<0?0:r->left,t=r->top<0?0:r->top;
+            int right=r->right>dst->width?dst->width:r->right;
+            int bottom=r->bottom>dst->height?dst->height:r->bottom;
+            uint32_t argb=0xff000000u | pe_color_rgb(color);
+            for (int y=t;y<bottom;y++) for (int x=l;x<right;x++)
+                if (!d->clip_active || pe_region_contains(&d->region,x,y)) pe_raster_set(dst,x,y,argb);
+            return 1;
+        }
+    }
 	struct pg_packet p = { .op = PG_FILL,
 			       .a = r->left,
 			       .b = r->top,

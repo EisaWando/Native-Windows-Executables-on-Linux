@@ -115,3 +115,19 @@ The current window metadata still shares one field for a popup owner and a
 parent; reparenting an owned popup can therefore return its former owner where
 Windows would distinguish the desktop parent. Owner-chain propagation of
 WS_EX_TOPMOST is also not modeled. These cases require a separate owner field.
+
+System colors are process-local mutable COLORREF values. The bridge caches one
+shared system brush per color index; changing a color updates its existing brush
+and notifies top-level windows. Software bitmap DCs support solid FillRect,
+FrameRect, InvertRect, dotted DrawFocusRect, classic edge/frame glyph drawing,
+icon planes and alpha compositing. System-color-number brushes map to index+1.
+
+Memory-DC text now receives FreeType glyph coverage in bounded helper packets;
+no X11 display is needed for font rasterization. DrawText implements the listed
+layout flags and UTF-8 ANSI conversion. The renderer still has no complex-script
+shaping or bidirectional layout. The classic DrawFrameControl glyphs are a
+bridge-drawn approximation rather than theme-accurate Windows artwork. InvertRect
+and DrawFocusRect currently require a software bitmap DC; native window-DC
+inversion is not implemented. Existing icon decoding still excludes PNG/RLE.
+The added SPI getters use the bridge's fixed desktop profile; other unsupported
+SPI actions continue to fail rather than return fabricated success.

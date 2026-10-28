@@ -27,7 +27,7 @@ enum {
 	PG_MENU_END,
 	PG_FONT_METRICS,
 	PG_MEASURE,
-	PG_FONT_ENUM_BEGIN, PG_FONT_ENUM_NEXT, PG_FONT_ENUM_END, PG_CLIP
+	PG_FONT_ENUM_BEGIN, PG_FONT_ENUM_NEXT, PG_FONT_ENUM_END, PG_CLIP, PG_FONT_GLYPH
 };
 struct pg_text_metrics {
 	int32_t height, ascent, descent, internal, external, average, maximum,
