@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 1e1dbc985, hook registry and synchronous WH_CALLWNDPROC dispatch.
+- Full suite: exit 0, 72 PASS; tests/hooks.exe passed.
+- Post-commit Notepad++: exit 127, VERSION!GetFileVersionInfoSizeW, 419 resolved / 201 unimplemented.
+- Limitations: unhooked records remain allocated; hooks other than WH_CALLWNDPROC are registered but not dispatched yet; process-local global hooks.
+- Next: implement remaining message hook dispatch; add CBT/input/modal hooks; continue Notepad++ loop.
+
 - Current commit: 3e303e433 — modal dialog loops and per-thread timers.
 - Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0; 71 PASS, including `tests/modal_dialogs.exe`.
 - Post-commit Notepad++: exit 127, USER32!SetWindowsHookExW; 416 resolved / 204 unimplemented.

@@ -91,6 +91,7 @@ struct pe_window {
 	unsigned char extra[4096];
 };
 static struct pe_ui *pe_uis;
+static intptr_t pe_hook_dispatch(int, int, uintptr_t, intptr_t);
 static struct pe_window *pe_windows;
 static bool pe_coord_origin(struct pe_window *,struct pe_point *);
 static bool pe_tree_reorder(struct pe_window *,HANDLE);
@@ -919,6 +920,8 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
 							     (long)m,
 							     sizeof(*m), 0);
 					}
+					pe_state_leave(&pe_guard);
+					pe_hook_dispatch(3,0,flags & 1,(intptr_t)out);
 					return out->message == 0x12 ? 0 : 1;
 				}
 				previous = m;
@@ -931,6 +934,8 @@ static int pe_ui_get(struct pe_msg *out, HANDLE hwnd, DWORD min, DWORD max,
                 if (paint) {
                     *out=(struct pe_msg){.hwnd=paint->handle,.message=0xf,.time=GetTickCount(),.x=pe_cursor.x,.y=pe_cursor.y};
                     u->message_x=out->x;u->message_y=out->y;u->message_time=out->time;
+                    pe_state_leave(&pe_guard);
+                    pe_hook_dispatch(3,0,flags & 1,(intptr_t)out);
                     return 1;
                 }
             }

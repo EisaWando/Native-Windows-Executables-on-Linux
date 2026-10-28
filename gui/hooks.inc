@@ -61,9 +61,13 @@ __attribute__((ms_abi)) BOOL UnhookWindowsHook(int type,pe_hook_proc proc)
     if (!h) { SetLastError(1404); return 0; } return UnhookWindowsHookEx(h);
 }
 struct pe_cwp { intptr_t lp; uintptr_t wp; DWORD msg; HANDLE hwnd; };
+struct pe_cwpret { intptr_t result, lp; uintptr_t wp; DWORD msg; HANDLE hwnd; };
 static intptr_t pe_hook_send(struct pe_window *w,DWORD msg,uintptr_t wp,intptr_t lp,bool own)
 {
     struct pe_cwp info={lp,wp,msg,w->handle};
     pe_hook_dispatch(4,0,own,(intptr_t)&info);
-    return w->proc(w->handle,msg,wp,lp);
+    intptr_t result=w->proc(w->handle,msg,wp,lp);
+    struct pe_cwpret after={result,lp,wp,msg,w->handle};
+    pe_hook_dispatch(12,0,own,(intptr_t)&after);
+    return result;
 }
