@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 8a1657300, Unicode version-resource queries.
+- Full suite: exit 0, 73 PASS, including version-query fixed data, strings and translations.
+- Post-commit Notepad++: exit 127, KERNEL32!CreateFileMappingW, 422 resolved / 198 unimplemented.
+- Limitations: VerQueryValueA remains unimplemented; version file reader selects first numeric resource and language.
+- Next: implement and test file mapping APIs, including SEC_IMAGE requested by Notepad++; continue startup; revisit menu-loop hooks.
+
 - Current commit: 868c753fc, PE file version-resource retrieval.
 - Full suite: exit 0, 73 PASS, including tests/version.exe.
 - Post-commit Notepad++: exit 127, VERSION!VerQueryValueW, 421 resolved / 199 unimplemented.
