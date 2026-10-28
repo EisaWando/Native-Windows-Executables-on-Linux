@@ -2020,13 +2020,16 @@ __attribute__((ms_abi)) uint16_t *PathRemoveBackslashW(uint16_t *p)
 
 /* Kernel-style synchronization objects, in a range separate from files/GDI. */
 struct pe_reg_node;
-enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE, PE_REGKEY, PE_TOKEN };
+enum pe_wait_kind { PE_WAIT_THREAD = 1, PE_WAIT_EVENT, PE_WAIT_MUTEX, PE_WAIT_SEMAPHORE, PE_REGKEY, PE_TOKEN, PE_SECTION };
+struct pe_section;
+static void pe_section_destroy(struct pe_section *);
 struct pe_thread;
 struct pe_wait_object {
     unsigned kind, refs; bool named; uint16_t name[256];
     struct pe_wait_object *next;
     union {
         struct pe_thread *thread;
+        struct pe_section *section;
         struct { struct pe_reg_node *node; DWORD access; } reg;
         struct { DWORD uid,access; } token;
         struct { bool manual, signaled; } event;
@@ -2148,6 +2151,7 @@ static void pe_wait_reap(void)
             }
             raw_syscall3(SYS_munmap, (long)t, sizeof(*t), 0);
         }
+        if (o->kind == PE_SECTION && o->u.section) pe_section_destroy(o->u.section);
         raw_syscall3(SYS_munmap, (long)o, sizeof(*o), 0);
     }
 }
@@ -3470,6 +3474,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 
 #include "bridge/resources.inc"
 #include "bridge/version.inc"
+#include "bridge/pe_image.inc"
+#include "bridge/file_mapping.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
 #include "gui/hooks.inc"
@@ -3534,6 +3540,16 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "VerQueryValueW")) return VerQueryValueW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoW")) return GetFileVersionInfoW;
     if (!by_ordinal && ascii_equal_ci(function, "GetFileVersionInfoA")) return GetFileVersionInfoA;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFileMappingW")) return CreateFileMappingW;
+    if (!by_ordinal && ascii_equal_ci(function, "CreateFileMappingA")) return CreateFileMappingA;
+    if (!by_ordinal && ascii_equal_ci(function, "OpenFileMappingW")) return OpenFileMappingW;
+    if (!by_ordinal && ascii_equal_ci(function, "OpenFileMappingA")) return OpenFileMappingA;
+    if (!by_ordinal && ascii_equal_ci(function, "MapViewOfFile")) return MapViewOfFile;
+    if (!by_ordinal && ascii_equal_ci(function, "MapViewOfFileEx")) return MapViewOfFileEx;
+    if (!by_ordinal && ascii_equal_ci(function, "UnmapViewOfFile")) return UnmapViewOfFile;
+    if (!by_ordinal && ascii_equal_ci(function, "FlushViewOfFile")) return FlushViewOfFile;
+    if (!by_ordinal && ascii_equal_ci(function, "VirtualQuery")) return VirtualQuery;
+    if (!by_ordinal && (ascii_equal_ci(function, "GetMappedFileNameW") || ascii_equal_ci(function, "K32GetMappedFileNameW"))) return GetMappedFileNameW;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRgn")) return GetUpdateRgn;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRect")) return GetUpdateRect;
     if (!by_ordinal && ascii_equal_ci(function, "InvalidateRgn")) return InvalidateRgn;

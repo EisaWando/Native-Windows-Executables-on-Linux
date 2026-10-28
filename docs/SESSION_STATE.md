@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: e3b9d04ed, bounded PE image layout parser and fixture test.
+- Full suite: exit 0, 74 PASS, including tests/pe_image.exe.
+- Post-commit Notepad++: exit 127, KERNEL32!CreateFileMappingW, 422 resolved / 198 unimplemented.
+- Limitations: parser is preparatory and not yet connected to bridge mappings; no file-mapping APIs implemented.
+- Next: implement section handles and SEC_IMAGE views; implement normal file/anonymous views and VirtualQuery; test and continue Notepad++.
+
 - Current commit: 8a1657300, Unicode version-resource queries.
 - Full suite: exit 0, 73 PASS, including version-query fixed data, strings and translations.
 - Post-commit Notepad++: exit 127, KERNEL32!CreateFileMappingW, 422 resolved / 198 unimplemented.
