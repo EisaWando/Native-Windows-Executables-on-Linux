@@ -616,18 +616,46 @@ static void diagnostic_exception(uintptr_t code, uintptr_t flags, uintptr_t npar
         raw_puts(" ThrowInfo="); raw_hex(params[2]);
         raw_puts(" image="); raw_hex(base);
         uint32_t ti[4], cta[2], ct[2];
+        bool is_wstring = false;
+        static const char wstring_type[] = ".?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@";
         raw_puts(" type=\"");
         if (base == pe_main_base && diagnostic_image_read(params[2], ti, sizeof(ti)) &&
             diagnostic_image_read(base+ti[3], cta, sizeof(cta)) && (int32_t)cta[0] > 0 &&
             diagnostic_image_read(base+cta[1], ct, sizeof(ct))) {
+            is_wstring = true;
             for (unsigned i = 0; i < 256; i++) {
                 char c;
                 if (!diagnostic_image_read(base+ct[1]+16+i, &c, 1) || !c) break;
+                if (i >= sizeof(wstring_type)-1 || c != wstring_type[i]) is_wstring = false;
                 if (c < 32 || c > 126) c = '?';
                 raw_write(&c, 1);
             }
+            char end;
+            if (!diagnostic_image_read(base+ct[1]+16+sizeof(wstring_type)-1, &end, 1) || end)
+                is_wstring = false;
         } else raw_puts("<unreadable>");
-        raw_puts("\" bytes=");
+        raw_puts("\"");
+        if (is_wstring) {
+            struct { uintptr_t storage[2], size, capacity; } value;
+            raw_puts(" wstring=");
+            if (!diagnostic_read(params[1], &value, sizeof(value)) || value.size > 0x100000) {
+                raw_puts("<unreadable>");
+            } else {
+                uintptr_t text = value.capacity >= 8 ? value.storage[0] : params[1];
+                raw_puts("\"");
+                unsigned limit = value.size < 200 ? (unsigned)value.size : 200;
+                for (unsigned i=0;i<limit;i++) {
+                    uint16_t c; char printable;
+                    if (!diagnostic_read(text+(uintptr_t)i*2, &c, 2)) { raw_puts("<unreadable>"); break; }
+                    printable = c >= 32 && c <= 0x7e ? (char)c : '?';
+                    raw_write(&printable,1);
+                }
+                if (value.size > 200) raw_puts("...");
+                raw_puts("\" size="); raw_uint(value.size);
+                raw_puts(" capacity="); raw_uint(value.capacity);
+            }
+        }
+        raw_puts(" bytes=");
         unsigned char bytes[32];
         if (diagnostic_read(params[1], bytes, sizeof(bytes))) {
             static const char hex[] = "0123456789abcdef";
