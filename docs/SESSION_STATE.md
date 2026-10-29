@@ -1,11 +1,12 @@
 # Resume state
 
 
-- Current commit: 0dc95432f, ANSI version queries and hook record cleanup.
-- Full suite: exit 0, 75 PASS; version and hook tests passed.
-- Post-commit Notepad++: exit 127, dbghelp!ImageNtHeader, 425 resolved / 195 unimplemented.
+- Current commit: 356c5112b, FormatMessageW/A and LocalAlloc/LocalFree.
+- Full suite: exit 0, 77 PASS, including tests/format_message.exe.
+- Post-commit Notepad++: exit 127, KERNEL32!RaiseException, 430 resolved / 190 unimplemented.
+- Stop condition: Notepad++ raises C++ exception 0xE06D7363. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
-- Next: implement dbghelp image-header helpers; finish SEC_RESERVE/mapping semantics; continue Notepad++ startup.
+- Next: implement and test RtlLookupFunctionEntry/RtlVirtualUnwind; implement RaiseException/RtlUnwindEx dispatch; resume Notepad++ only after exception tests pass.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.
