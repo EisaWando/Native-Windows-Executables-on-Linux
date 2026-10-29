@@ -1,12 +1,12 @@
 # Resume state
 
 
-- Current commit: 79033c492, guarded std::wstring exception diagnostic.
-- Full suite: exit 0, 77 PASS, including exception diagnostics.
-- Post-commit Notepad++: exit 127, KERNEL32!RaiseException, 430 resolved / 190 unimplemented.
+- Current commit: 39b0cf82e, runtime function lookup for the main image and registered tables.
+- Full suite: exit 0, 78 PASS, including tests/unwind_lookup.exe and exception diagnostics.
+- Post-commit Notepad++: exit 127, KERNEL32!RaiseException, 431 resolved / 189 unimplemented.
 - Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
-- Next: implement and test RtlLookupFunctionEntry/RtlVirtualUnwind; implement RaiseException/RtlUnwindEx dispatch; resume Notepad++ only after exception tests pass.
+- Next: implement callback-based function tables and RtlVirtualUnwind/context capture; implement RaiseException/RtlUnwindEx dispatch; resume Notepad++ only after exception tests pass.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.
