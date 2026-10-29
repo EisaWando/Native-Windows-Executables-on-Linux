@@ -3505,6 +3505,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/pe_image.inc"
 #include "bridge/file_mapping.inc"
 #include "bridge/image_help.inc"
+#include "bridge/unwind_lookup.inc"
 #include "bridge/format_message.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
@@ -3559,6 +3560,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RtlLookupFunctionEntry")) return RtlLookupFunctionEntry;
+    if (!by_ordinal && ascii_equal_ci(function, "RtlAddFunctionTable")) return RtlAddFunctionTable;
+    if (!by_ordinal && ascii_equal_ci(function, "RtlDeleteFunctionTable")) return RtlDeleteFunctionTable;
     if (!by_ordinal && ascii_equal_ci(function, "FormatMessageW")) return FormatMessageW;
     if (!by_ordinal && ascii_equal_ci(function, "FormatMessageA")) return FormatMessageA;
     if (!by_ordinal && ascii_equal_ci(function, "LocalAlloc")) return LocalAlloc;
