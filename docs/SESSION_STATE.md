@@ -1,15 +1,15 @@
 # Resume state
 
 
-- Current commit: e0104755a, US English keyboard layout and key mapping.
-- Full suite: exit 0, 80 PASS, including tests/cmdline.exe and tests/keyboard_layout.exe.
-- Post-commit Notepad++ -noPlugin: exit 127, UxTheme!EnableThemeDialogTexture, 433 resolved / 187 unimplemented.
+- Current commit: bed324d45, classic-theme dialog texture state.
+- Full suite: exit 0, 81 PASS, including tests/theme_texture.exe.
+- Post-commit Notepad++ -noPlugin: exit 127, USER32!GetClassNameW, 434 resolved / 186 unimplemented.
 - Plain Notepad++: exit 127, KERNEL32!RaiseException while loading a plugin; real PE DLL loading is needed for plugins.
 - Command-line limitation: the kernel does not populate PEB ProcessParameters, so no existing process-parameter strings were updated.
 - Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
 - Keyboard limitation: the layout is fixed to US English and only common scan-code mappings are available.
-- Next: implement dialog texture theme state; continue the -noPlugin startup loop; implement x64 exception handling when required.
+- Next: implement class-name queries; continue the -noPlugin startup loop; implement x64 exception handling when required.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.

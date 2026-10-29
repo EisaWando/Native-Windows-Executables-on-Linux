@@ -3510,6 +3510,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/cmdline.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
+#include "gui/class_names.inc"
 #include "gui/hooks.inc"
 #include "gui/window_state.inc"
 #include "gui/properties.inc"
@@ -3562,6 +3563,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetClassNameW")) return GetClassNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetClassNameA")) return GetClassNameA;
     if (!by_ordinal && ascii_equal_ci(function, "EnableThemeDialogTexture")) return EnableThemeDialogTexture;
     if (!by_ordinal && ascii_equal_ci(function, "IsThemeDialogTextureEnabled")) return IsThemeDialogTextureEnabled;
     if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayout")) return GetKeyboardLayout;
