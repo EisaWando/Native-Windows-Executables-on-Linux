@@ -1,6 +1,12 @@
 # Resume state
 
 
+- Current commit: 0dc95432f, ANSI version queries and hook record cleanup.
+- Full suite: exit 0, 75 PASS; version and hook tests passed.
+- Post-commit Notepad++: exit 127, dbghelp!ImageNtHeader, 425 resolved / 195 unimplemented.
+- Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
+- Next: implement dbghelp image-header helpers; finish SEC_RESERVE/mapping semantics; continue Notepad++ startup.
+
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.
 - Post-commit Notepad++: exit 127, dbghelp!ImageNtHeader, 425 resolved / 195 unimplemented.

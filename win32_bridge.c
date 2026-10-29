@@ -3476,6 +3476,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/version.inc"
 #include "bridge/pe_image.inc"
 #include "bridge/file_mapping.inc"
+#include "bridge/image_help.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
 #include "gui/hooks.inc"
@@ -3551,6 +3552,9 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "FlushViewOfFile")) return FlushViewOfFile;
     if (!by_ordinal && ascii_equal_ci(function, "VirtualQuery")) return VirtualQuery;
     if (!by_ordinal && (ascii_equal_ci(function, "GetMappedFileNameW") || ascii_equal_ci(function, "K32GetMappedFileNameW"))) return GetMappedFileNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageNtHeader")) return ImageNtHeader;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageRvaToSection")) return ImageRvaToSection;
+    if (!by_ordinal && ascii_equal_ci(function, "ImageRvaToVa")) return ImageRvaToVa;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRgn")) return GetUpdateRgn;
     if (!by_ordinal && ascii_equal_ci(function, "GetUpdateRect")) return GetUpdateRect;
     if (!by_ordinal && ascii_equal_ci(function, "InvalidateRgn")) return InvalidateRgn;
