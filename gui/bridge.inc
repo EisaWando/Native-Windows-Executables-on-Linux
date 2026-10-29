@@ -68,6 +68,7 @@ static struct pe_point pe_cursor;
 struct pe_window {
 	struct pe_modal_state *modal;
 	unsigned dialog_default_id;
+	DWORD dialog_texture_flags;
 	HANDLE dialog_font;
 	int dialog_base_x, dialog_base_y;
 	struct pe_region update;

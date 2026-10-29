@@ -122,6 +122,9 @@ and notifies top-level windows. Software bitmap DCs support solid FillRect,
 FrameRect, InvertRect, dotted DrawFocusRect, classic edge/frame glyph drawing,
 icon planes and alpha compositing. System-color-number brushes map to index+1.
 
+The bridge uses a classic-theme profile. Dialog texture APIs retain the selected
+per-window state; that profile does not draw visual-style background textures.
+
 Memory-DC text now receives FreeType glyph coverage in bounded helper packets;
 no X11 display is needed for font rasterization. DrawText implements the listed
 layout flags and UTF-8 ANSI conversion. The renderer still has no complex-script

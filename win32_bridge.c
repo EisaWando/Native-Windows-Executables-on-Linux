@@ -3562,6 +3562,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "EnableThemeDialogTexture")) return EnableThemeDialogTexture;
+    if (!by_ordinal && ascii_equal_ci(function, "IsThemeDialogTextureEnabled")) return IsThemeDialogTextureEnabled;
     if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayout")) return GetKeyboardLayout;
     if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayoutNameW")) return GetKeyboardLayoutNameW;
     if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayoutNameA")) return GetKeyboardLayoutNameA;

@@ -74,3 +74,17 @@ __attribute__((ms_abi)) int32_t CloseThemeData(HANDLE theme)
 	(void)theme;
 	return (int32_t)0x80070006u;
 }
+/* Classic-theme profile: retain dialog texture selection without themed artwork. */
+__attribute__((ms_abi)) int32_t EnableThemeDialogTexture(HANDLE hwnd,DWORD flags)
+{
+    if(!flags || (flags&~15u) || ((flags&1) && (flags&2))) return (int32_t)0x80070057u;
+    PE_STATE_GUARD; struct pe_window *w=pe_window_lookup(hwnd,false);
+    if(!w) return (int32_t)0x80070578u;
+    w->dialog_texture_flags=(flags&1)?0:flags;
+    return 0;
+}
+__attribute__((ms_abi)) BOOL IsThemeDialogTextureEnabled(HANDLE hwnd)
+{
+    PE_STATE_GUARD; struct pe_window *w=pe_window_lookup(hwnd,false);
+    return w && !!(w->dialog_texture_flags&2);
+}
