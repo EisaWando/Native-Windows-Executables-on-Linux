@@ -1,12 +1,14 @@
 # Resume state
 
 
-- Current commit: 39b0cf82e, runtime function lookup for the main image and registered tables.
-- Full suite: exit 0, 78 PASS, including tests/unwind_lookup.exe and exception diagnostics.
-- Post-commit Notepad++: exit 127, KERNEL32!RaiseException, 431 resolved / 189 unimplemented.
+- Current commit: 0b70a51dd, process command line and CommandLineToArgvW.
+- Full suite: exit 0, 79 PASS, including tests/cmdline.exe.
+- Post-commit Notepad++ -noPlugin: exit 127, USER32!GetKeyboardLayout, 431 resolved / 189 unimplemented.
+- Plain Notepad++: exit 127, KERNEL32!RaiseException while loading a plugin; real PE DLL loading is needed for plugins.
+- Command-line limitation: the kernel does not populate PEB ProcessParameters, so no existing process-parameter strings were updated.
 - Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
-- Next: implement callback-based function tables and RtlVirtualUnwind/context capture; implement RaiseException/RtlUnwindEx dispatch; resume Notepad++ only after exception tests pass.
+- Next: implement keyboard layout APIs needed by -noPlugin; continue its startup loop; implement x64 exception handling when required.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.

@@ -3550,6 +3550,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/window_tree.inc"
 #include "gui/timers.inc"
 #include "gui/modal_dialog.inc"
+#include "gui/keyboard_layout.inc"
 #include "gui/text_raster.inc"
 #include "gui/draw_text.inc"
 #include "gui/syscolors_draw.inc"
@@ -3561,6 +3562,13 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayout")) return GetKeyboardLayout;
+    if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayoutNameW")) return GetKeyboardLayoutNameW;
+    if (!by_ordinal && ascii_equal_ci(function, "GetKeyboardLayoutNameA")) return GetKeyboardLayoutNameA;
+    if (!by_ordinal && ascii_equal_ci(function, "MapVirtualKeyW")) return MapVirtualKeyW;
+    if (!by_ordinal && ascii_equal_ci(function, "MapVirtualKeyA")) return MapVirtualKeyA;
+    if (!by_ordinal && ascii_equal_ci(function, "MapVirtualKeyExW")) return MapVirtualKeyExW;
+    if (!by_ordinal && ascii_equal_ci(function, "MapVirtualKeyExA")) return MapVirtualKeyExA;
     if (!by_ordinal && ascii_equal_ci(function, "CommandLineToArgvW")) return CommandLineToArgvW;
     if (!by_ordinal && ascii_equal_ci(function, "RtlLookupFunctionEntry")) return RtlLookupFunctionEntry;
     if (!by_ordinal && ascii_equal_ci(function, "RtlAddFunctionTable")) return RtlAddFunctionTable;

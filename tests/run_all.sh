@@ -36,6 +36,7 @@ x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/commctl_ordinals.exe tests/commctl
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/pe_image.exe tests/pe_image.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/unwind_lookup.exe tests/unwind_lookup.c -lkernel32 -lntdll || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/cmdline.exe tests/cmdline.c -lkernel32 -lshell32 || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/keyboard_layout.exe tests/keyboard_layout.c -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/image_help.exe tests/image_help.c -lkernel32 -ldbghelp || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/format_message.exe tests/format_message.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/file_mapping.exe tests/file_mapping.c -lkernel32 -lpsapi || exit 1
@@ -81,6 +82,7 @@ check_pe tests/update_rgn.exe 0 'update rgn ok' env BINFMT_PE_GUI_HELPER=/nonexi
 check_pe tests/pe_image.exe 0 'pe image ok' timeout 15s tests/pe_image.exe
 check_pe tests/unwind_lookup.exe 0 'unwind lookup ok' timeout 15s tests/unwind_lookup.exe
 check_pe tests/cmdline.exe 0 'cmdline ok' timeout 15s tests/cmdline.exe -noPlugin 'two words' 'a"b' 'back\slash\' ''
+check_pe tests/keyboard_layout.exe 0 'keyboard layout ok' timeout 15s tests/keyboard_layout.exe
 check_pe tests/image_help.exe 0 'image help ok' timeout 15s tests/image_help.exe
 check_pe tests/format_message.exe 0 'format message ok' timeout 15s tests/format_message.exe
 check_pe tests/file_mapping.exe 0 'file mapping ok' timeout 15s tests/file_mapping.exe
