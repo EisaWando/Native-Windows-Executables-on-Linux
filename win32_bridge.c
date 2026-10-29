@@ -1104,8 +1104,8 @@ __attribute__((ms_abi)) void *DecodePointer(void *p) { return p; }
 __attribute__((ms_abi)) void InitializeSListHead(void *h) { memset(h, 0, 16); }
 __attribute__((ms_abi)) void *GetCurrentProcess(void) { return (void *)(intptr_t)-1; }
 __attribute__((ms_abi)) void *GetCurrentThread(void) { return (void *)(intptr_t)-2; }
-static const uint16_t pe_cmdline_w[] = { 'n','o','t','e','p','a','d','+','+','.','e','x','e', 0 };
-static const char pe_cmdline_a[] = "notepad++.exe";      /* TODO: build from /proc/self/cmdline */
+static uint16_t *pe_cmdline_w;
+static char *pe_cmdline_a;
 static const uint16_t pe_env_w[] = { 0, 0 };              /* TODO: real environment block */
 __attribute__((ms_abi)) uint16_t *GetCommandLineW(void) { return (uint16_t *)pe_cmdline_w; }
 __attribute__((ms_abi)) char *GetCommandLineA(void) { return (char *)pe_cmdline_a; }
@@ -3507,6 +3507,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/image_help.inc"
 #include "bridge/unwind_lookup.inc"
 #include "bridge/format_message.inc"
+#include "bridge/cmdline.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
 #include "gui/hooks.inc"
@@ -3560,6 +3561,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "CommandLineToArgvW")) return CommandLineToArgvW;
     if (!by_ordinal && ascii_equal_ci(function, "RtlLookupFunctionEntry")) return RtlLookupFunctionEntry;
     if (!by_ordinal && ascii_equal_ci(function, "RtlAddFunctionTable")) return RtlAddFunctionTable;
     if (!by_ordinal && ascii_equal_ci(function, "RtlDeleteFunctionTable")) return RtlDeleteFunctionTable;
@@ -4563,6 +4565,7 @@ void bridge_bootstrap(uintptr_t image_base, uint32_t import_rva,
     *(uint64_t *)(teb+0x48) = GetCurrentThreadId();
     if (!pe_init_fls(teb)) pe_loader_error("main FLS allocation failed");
     pe_main_thread_init();
+    if (!pe_cmdline_init()) pe_loader_error("command line initialization failed");
     pe_setup_image_tls(image_base);
 }
 
