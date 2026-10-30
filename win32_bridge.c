@@ -3517,6 +3517,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/class_names.inc"
 #include "gui/hooks.inc"
 #include "gui/window_state.inc"
+#include "gui/placement.inc"
 #include "gui/properties.inc"
 #include "gui/subclass.inc"
 #include "gui/send.inc"
@@ -3567,6 +3568,8 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "GetWindowPlacement")) return GetWindowPlacement;
+    if (!by_ordinal && ascii_equal_ci(function, "SetWindowPlacement")) return SetWindowPlacement;
     if (!by_ordinal && ascii_equal_ci(function, "LockWindowUpdate")) return LockWindowUpdate;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterApplicationRestart")) return RegisterApplicationRestart;
     if (!by_ordinal && ascii_equal_ci(function, "UnregisterApplicationRestart")) return UnregisterApplicationRestart;
