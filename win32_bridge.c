@@ -3507,6 +3507,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/image_help.inc"
 #include "bridge/unwind_lookup.inc"
 #include "bridge/format_message.inc"
+#include "bridge/restart.inc"
 #include "bridge/cmdline.inc"
 #include "gui/image_pixels.inc"
 #include "gui/bridge.inc"
@@ -3563,6 +3564,9 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "RegisterApplicationRestart")) return RegisterApplicationRestart;
+    if (!by_ordinal && ascii_equal_ci(function, "UnregisterApplicationRestart")) return UnregisterApplicationRestart;
+    if (!by_ordinal && ascii_equal_ci(function, "GetApplicationRestartSettings")) return GetApplicationRestartSettings;
     if (!by_ordinal && ascii_equal_ci(function, "GetClassNameW")) return GetClassNameW;
     if (!by_ordinal && ascii_equal_ci(function, "GetClassNameA")) return GetClassNameA;
     if (!by_ordinal && ascii_equal_ci(function, "EnableThemeDialogTexture")) return EnableThemeDialogTexture;

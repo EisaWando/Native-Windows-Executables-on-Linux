@@ -39,6 +39,7 @@ x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/cmdline.exe tests/cmdline.c -lkern
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/keyboard_layout.exe tests/keyboard_layout.c -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/theme_texture.exe tests/theme_texture.c -lkernel32 -luser32 -luxtheme || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/class_names.exe tests/class_names.c -lkernel32 -luser32 || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/restart.exe tests/restart.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/image_help.exe tests/image_help.c -lkernel32 -ldbghelp || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/format_message.exe tests/format_message.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/file_mapping.exe tests/file_mapping.c -lkernel32 -lpsapi || exit 1
@@ -87,6 +88,7 @@ check_pe tests/cmdline.exe 0 'cmdline ok' timeout 15s tests/cmdline.exe -noPlugi
 check_pe tests/keyboard_layout.exe 0 'keyboard layout ok' timeout 15s tests/keyboard_layout.exe
 check_pe tests/theme_texture.exe 0 'theme texture ok' timeout 15s tests/theme_texture.exe
 check_pe tests/class_names.exe 0 'class names ok' timeout 15s tests/class_names.exe
+check_pe tests/restart.exe 0 'restart ok' timeout 15s tests/restart.exe
 check_pe tests/image_help.exe 0 'image help ok' timeout 15s tests/image_help.exe
 check_pe tests/format_message.exe 0 'format message ok' timeout 15s tests/format_message.exe
 check_pe tests/file_mapping.exe 0 'file mapping ok' timeout 15s tests/file_mapping.exe
