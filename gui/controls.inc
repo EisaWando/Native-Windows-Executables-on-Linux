@@ -2,6 +2,8 @@
 struct pe_control_item {
 	uint16_t *text;
 	intptr_t data;
+	uint32_t tab_state;
+	int32_t tab_image;
 };
 struct pe_control {
 	HANDLE font, image, buddy;
@@ -16,6 +18,8 @@ struct pe_control {
 	unsigned button_size;
 	unsigned char *buttons;
 	unsigned button_count;
+	int tab_focus,tab_min_width,tab_pad_x,tab_pad_y;
+	DWORD tab_extended_style;
 };
 static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE, DWORD,
 							uintptr_t, intptr_t);
@@ -384,18 +388,73 @@ static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE hwnd, DWORD msg,
 			return lp != 0;
 	}
 	if (kind == 8) {
-		if (msg == 0x133e) {
+		if (msg == 0x133e || msg == 0x1307) {
 			if (!lp)
 				return -1;
 			const unsigned char *item = (void *)lp;
-			const uint16_t *name =
-				(*(DWORD *)item & 1) ?
-					*(const uint16_t **)(item + 16) :
-					NULL;
-			return pe_control_insert(c, wp, name, 0);
+			DWORD mask=*(const DWORD *)item;
+			const uint16_t *name=(mask&1)?*(const uint16_t **)(item+16):NULL;
+			uint16_t converted[1024];
+			if(msg==0x1307 && name) {
+				if(!MultiByteToWideChar(65001,8,(const char *)name,-1,converted,1024)) return -1;
+				name=converted;
+			}
+			intptr_t index=pe_control_insert(c,wp,name,(mask&8)?*(const intptr_t *)(item+32):0);
+			if(index<0)return -1;
+			if(mask&2)c->items[index].tab_image=*(const int32_t *)(item+28);
+			if(mask&16)c->items[index].tab_state=*(const DWORD *)(item+4)&*(const DWORD *)(item+8);
+			return index;
+		}
+		if(msg==0x133c || msg==0x1305 || msg==0x133d || msg==0x1306) {
+			if(!lp || wp>=c->count)return 0;
+			unsigned char *item=(void *)lp;DWORD mask=*(DWORD *)item;struct pe_control_item *v=&c->items[wp];
+			bool get=msg==0x133c || msg==0x1305, ansi=msg==0x1305 || msg==0x1306;
+			if(get) {
+				if(mask&8)*(intptr_t *)(item+32)=v->data;
+				if(mask&2)*(int32_t *)(item+28)=v->tab_image;
+				if(mask&16)*(DWORD *)(item+4)=v->tab_state & *(DWORD *)(item+8);
+				if(mask&1) {
+					void *dst=*(void **)(item+16);int cap=*(int32_t *)(item+24);
+					if(dst && cap>0) {
+						if(ansi) { int chars=lstrlenW(v->text);while(chars && WideCharToMultiByte(65001,0,v->text,chars,NULL,0,NULL,NULL)>=cap) chars--;
+							int bytes=chars?WideCharToMultiByte(65001,0,v->text,chars,dst,cap-1,NULL,NULL):0;((char *)dst)[bytes]=0; }
+						else { int n=lstrlenW(v->text);if(n>=cap)n=cap-1;memcpy(dst,v->text,n*2);((uint16_t *)dst)[n]=0; }
+					}
+				}
+				return 1;
+			}
+			if(mask&1) {
+				const void *src=*(const void **)(item+16);uint16_t converted[1024];
+				if(ansi && src) { if(!MultiByteToWideChar(65001,8,src,-1,converted,1024))return 0;src=converted; }
+				uint16_t *copy=pe_control_copy(src);if(!copy)return 0;
+				raw_syscall3(SYS_munmap,(long)v->text,(lstrlenW(v->text)+1)*2,0);v->text=copy;
+			}
+			if(mask&8)v->data=*(intptr_t *)(item+32);
+			if(mask&2)v->tab_image=*(int32_t *)(item+28);
+			if(mask&16) { DWORD sm=*(DWORD *)(item+8);v->tab_state=(v->tab_state&~sm)|(*(DWORD *)(item+4)&sm); }
+			return 1;
 		}
 		if (msg == 0x1304)
 			return c->count;
+		if(msg==0x1302)return (intptr_t)c->image;
+		if(msg==0x1303) { HANDLE old=c->image;c->image=(HANDLE)lp;return (intptr_t)old; }
+		if(msg==0x130a && lp && wp<c->count) {
+			int width=c->tab_min_width>0?c->tab_min_width:100;
+			*(struct pe_rect *)lp=(struct pe_rect){(int)wp*width,0,((int)wp+1)*width,24};return 1;
+		}
+		if(msg==0x130d && lp) {
+			struct { int32_t x,y;DWORD flags; } *hit=(void *)lp;int width=c->tab_min_width>0?c->tab_min_width:100;
+			if(hit->x<0 || hit->y<0 || hit->y>=24 || (unsigned)(hit->x/width)>=c->count) { hit->flags=1;return -1; }
+			hit->flags=6;return hit->x/width;
+		}
+		if(msg==0x130e) { if(c->count || wp>sizeof(intptr_t))return 0;return 1; }
+		if(msg==0x132b) { c->tab_pad_x=(uint16_t)lp;c->tab_pad_y=(uint16_t)((uintptr_t)lp>>16);return 0; }
+		if(msg==0x132c)return c->count?1:0;
+		if(msg==0x132f)return c->tab_focus;
+		if(msg==0x1330) { c->tab_focus=wp<c->count?(int)wp:-1;return 0; }
+		if(msg==0x1331) { int old=c->tab_min_width;c->tab_min_width=(int)lp;return old; }
+		if(msg==0x1334) { DWORD old=c->tab_extended_style;DWORD mask=wp?wp:UINT32_MAX;c->tab_extended_style=(old&~mask)|((DWORD)lp&mask);return old; }
+		if(msg==0x1335)return c->tab_extended_style;
 		if (msg == 0x1308)
 			return pe_control_delete(c, wp) >= 0;
 		if (msg == 0x1309) {
@@ -406,7 +465,17 @@ static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE hwnd, DWORD msg,
 			return c->selection;
 		if (msg == 0x130c) {
 			int old = c->selection;
-			c->selection = wp < c->count ? (int)wp : -1;
+			int next=wp<c->count?(int)wp:-1;
+			if(next==old)return old;
+			struct { HANDLE from; uintptr_t id; int32_t code; } notice={hwnd,(uintptr_t)w->menu,-552};
+			HANDLE parent=w->parent;
+			pe_state_leave(&pe_guard);
+			if(parent && SendMessageW(parent,0x4e,notice.id,(intptr_t)&notice))return old;
+			pe_guard=pe_state_enter();
+			if(w->dead)return old;
+			c->selection=next;
+			pe_state_leave(&pe_guard);
+			notice.code=-551;if(parent)SendMessageW(parent,0x4e,notice.id,(intptr_t)&notice);
 			return old;
 		}
 		if (msg == 0x1328 && lp) {
