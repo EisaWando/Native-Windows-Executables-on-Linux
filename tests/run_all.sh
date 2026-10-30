@@ -42,6 +42,7 @@ x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/class_names.exe tests/class_names.
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/restart.exe tests/restart.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/lock_update.exe tests/lock_update.c -lkernel32 -luser32 -lgdi32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/placement.exe tests/placement.c -lkernel32 -luser32 || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/path_match.exe tests/path_match.c -lkernel32 -lshlwapi || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/image_help.exe tests/image_help.c -lkernel32 -ldbghelp || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/format_message.exe tests/format_message.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/file_mapping.exe tests/file_mapping.c -lkernel32 -lpsapi || exit 1
@@ -93,6 +94,7 @@ check_pe tests/class_names.exe 0 'class names ok' timeout 15s tests/class_names.
 check_pe tests/restart.exe 0 'restart ok' timeout 15s tests/restart.exe
 check_pe tests/lock_update.exe 0 'lock update ok' timeout 15s tests/lock_update.exe
 check_pe tests/placement.exe 0 'placement ok' timeout 15s tests/placement.exe
+check_pe tests/path_match.exe 0 'path match ok' timeout 15s tests/path_match.exe
 check_pe tests/image_help.exe 0 'image help ok' timeout 15s tests/image_help.exe
 check_pe tests/format_message.exe 0 'format message ok' timeout 15s tests/format_message.exe
 check_pe tests/file_mapping.exe 0 'file mapping ok' timeout 15s tests/file_mapping.exe

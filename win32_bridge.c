@@ -3505,6 +3505,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 
 #include "bridge/resources.inc"
 #include "bridge/version.inc"
+#include "bridge/path_match.inc"
 #include "bridge/pe_image.inc"
 #include "bridge/file_mapping.inc"
 #include "bridge/image_help.inc"
@@ -3568,6 +3569,10 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecW")) return PathMatchSpecW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecA")) return PathMatchSpecA;
+    if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecExW")) return PathMatchSpecExW;
+    if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecExA")) return PathMatchSpecExA;
     if (!by_ordinal && ascii_equal_ci(function, "GetWindowPlacement")) return GetWindowPlacement;
     if (!by_ordinal && ascii_equal_ci(function, "SetWindowPlacement")) return SetWindowPlacement;
     if (!by_ordinal && ascii_equal_ci(function, "LockWindowUpdate")) return LockWindowUpdate;
