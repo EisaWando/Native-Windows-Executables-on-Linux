@@ -28,6 +28,10 @@ static BOOL pe_text_out_wide(HANDLE dc, int x, int y, uint32_t options,
     struct pe_gui_object *d;
     struct pe_window *w = pe_drawing_window(dc, &d);
     if (!w) return 0;
+    if (pe_update_locked(w->handle)) {
+        struct pg_packet attempted = { .op=PG_TEXT_OUT, .a=x, .b=y };
+        return pe_draw(dc,&attempted);
+    }
     DWORD text_color, background;
     int height;
     struct pe_logfont f;

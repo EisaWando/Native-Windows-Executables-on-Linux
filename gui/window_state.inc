@@ -13,6 +13,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	if (!w)
 		return 0;
+	if (!(flags&2) && pe_update_locked(hwnd) && (x!=w->x || y!=w->y)) return 0;
 	struct pe_windowpos pos = { hwnd, after, x, y, width, height, flags };
 	if ((flags & 3) != 3) {
 		struct pe_rect proposed = { flags & 2 ? w->x : x, flags & 2 ? w->y : y, 0, 0 };

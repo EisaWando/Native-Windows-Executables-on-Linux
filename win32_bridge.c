@@ -1619,10 +1619,13 @@ __attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
 }
 
 /* Read-only headless desktop profile. No HWND is manufactured here. */
+static bool pe_update_locked(HANDLE window);
 __attribute__((ms_abi)) HANDLE GetDC(HANDLE window)
 { PE_STATE_GUARD;
     if (window && !pe_gui_lookup(window, PE_GUI_WINDOW)) return NULL;
-    return pe_new_dc(PE_GDI_DC, window);
+    HANDLE dc=pe_new_dc(PE_GDI_DC, window);
+    if(dc && window && pe_update_locked(window)) { struct pe_gui_object *d=pe_dc_lookup(dc); d->clip_active=true; }
+    return dc;
 }
 __attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc);
 __attribute__((ms_abi)) int GetSystemMetrics(int index)
@@ -3564,6 +3567,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    if (!by_ordinal && ascii_equal_ci(function, "LockWindowUpdate")) return LockWindowUpdate;
     if (!by_ordinal && ascii_equal_ci(function, "RegisterApplicationRestart")) return RegisterApplicationRestart;
     if (!by_ordinal && ascii_equal_ci(function, "UnregisterApplicationRestart")) return UnregisterApplicationRestart;
     if (!by_ordinal && ascii_equal_ci(function, "GetApplicationRestartSettings")) return GetApplicationRestartSettings;

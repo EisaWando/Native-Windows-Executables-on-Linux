@@ -72,6 +72,8 @@ struct pe_window {
 	HANDLE dialog_font;
 	int dialog_base_x, dialog_base_y;
 	struct pe_region update;
+	struct pe_rect locked_damage;
+	bool locked_damage_set;
 	struct pe_property *properties;
 	struct pe_control *control;
 	struct pe_scrollbars *scrollbars;
@@ -104,6 +106,36 @@ static bool pe_hook_input(struct pe_msg *m)
 	return false;
 }
 static struct pe_window *pe_windows;
+static struct pe_window *pe_window_lookup(HANDLE hwnd,bool own);
+__attribute__((ms_abi)) BOOL InvalidateRect(HANDLE,const struct pe_rect *,BOOL);
+static HANDLE pe_locked_window;
+static bool pe_update_locked(HANDLE hwnd)
+{
+    while(hwnd) {
+        if(hwnd==pe_locked_window) return true;
+        struct pe_window *w=pe_window_lookup(hwnd,false);
+        if(!w || !(w->style&0x40000000u)) break;
+        hwnd=w->parent;
+    }
+    return false;
+}
+__attribute__((ms_abi)) BOOL LockWindowUpdate(HANDLE hwnd)
+{
+    PE_STATE_GUARD;
+    if(hwnd) {
+        if(!pe_window_lookup(hwnd,false) || pe_locked_window) return 0;
+        pe_locked_window=hwnd;return 1;
+    }
+    if(!pe_locked_window) return 1;
+    pe_locked_window=NULL;
+    for(struct pe_window *w=pe_windows;w;w=w->next) {
+        if(!w->dead && w->locked_damage_set) {
+            struct pe_rect rect=w->locked_damage;w->locked_damage_set=false;
+            InvalidateRect(w->handle,&rect,1);
+        }
+    }
+    return 1;
+}
 static bool pe_coord_origin(struct pe_window *,struct pe_point *);
 static bool pe_tree_reorder(struct pe_window *,HANDLE);
 static void pe_timer_pump(struct pe_ui *);
@@ -1057,6 +1089,19 @@ static BOOL pe_draw(HANDLE dc, struct pg_packet *p)
 	struct pe_window *w = pe_drawing_window(dc, NULL);
 	if (!w)
 		return 0;
+	{
+		PE_STATE_GUARD;
+		if(pe_update_locked(w->handle)) {
+			struct pe_rect r;
+			if(p->op==PG_FILL || p->op==PG_LINE) r=(struct pe_rect){p->a,p->b,p->c,p->d};
+			else if(p->op==PG_PIXEL) r=(struct pe_rect){p->a,p->b,p->a+1,p->b+1};
+			else r=(struct pe_rect){0,0,w->width,w->height};
+			if(!w->locked_damage_set) { w->locked_damage=r;w->locked_damage_set=true; }
+			else { if(r.left<w->locked_damage.left)w->locked_damage.left=r.left;if(r.top<w->locked_damage.top)w->locked_damage.top=r.top;
+			       if(r.right>w->locked_damage.right)w->locked_damage.right=r.right;if(r.bottom>w->locked_damage.bottom)w->locked_damage.bottom=r.bottom; }
+			return 1;
+		}
+	}
 	if (!w->realized) {
 		SetLastError(50);
 		return 0;

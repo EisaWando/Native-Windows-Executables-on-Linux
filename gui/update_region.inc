@@ -173,6 +173,7 @@ __attribute__((ms_abi)) HANDLE BeginPaint(HANDLE hwnd, struct pe_paint *paint)
         struct pe_gui_object *d = pe_dc_lookup(dc);
         /* Transfer ownership: allocations cannot fail during validation. */
         d->region = w->update; w->update = (struct pe_region){0}; d->clip_active = true;
+        if(pe_update_locked(hwnd)) pe_region_clear(&d->region);
         paint->dc = w->paint_dc = dc;
         pe_region_box(&d->region, &paint->rect);
         erase = w->invalid && w->erase;
