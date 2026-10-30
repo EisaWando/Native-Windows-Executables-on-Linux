@@ -1,10 +1,11 @@
 # Resume state
 
 
-- Current commit: 4bf3d2eab, tab item storage and query handling.
+- Current commit: 9b7858bac, opt-in first-paint window-tree diagnostic.
 - Full suite: exit 0, 87 PASS, including tests/tab_control.exe.
 - Post-commit Notepad++ -noPlugin: timed out after 30 seconds (exit 124), 443 resolved / 177 unimplemented; no CALLED UNIMPLEMENTED line or crash diagnostic in this noninteractive run.
 - The owner confirmed that the main window appeared; interaction previously triggered SIGSEGV at 0x1400f1fff after TCM_GETITEMW left lParam unchanged. The new regression verifies that the stored lParam is returned, but the interactive crash has not been reproduced after the fix.
+- The screenshot at `Test-Pics/Notepad++.png` shows the menu bar and File popup with a blank client area. `BRIDGE_DUMP_WINDOWS=1` first-paint output showed the Notepad++ main window at 0x0 (visible/realized), toolbar and status bar at 0x0 (visible/not realized), and primary Scintilla at x=2 y=28 size=-4x-54 (visible/not realized). Other tabs, splitters and dialogs were present; most children were not realized. The dump was captured in `/tmp/window-err.txt` in this session.
 - Tab limitations: item rectangles and hit testing use approximate fixed widths; custom item-extra storage, full selection/focus semantics and full notification coverage remain incomplete.
 - Desktop visual check (fish, from the project directory): `./npp.8.9.8.portable.x64/notepad++.exe -noPlugin`; screenshot from another terminal: `magick import -window root /tmp/notepadpp.png` (ImageMagick 7 syntax).
 - Lock limitation: ordinary window drawing and text track damage; other direct helper drawing paths and GetDCEx override are not yet covered.
@@ -14,7 +15,7 @@
 - Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
 - Keyboard limitation: the layout is fixed to US English and only common scan-code mappings are available.
-- Next: complete and test tab control behavior; audit other control classes and input routing; inspect the lower-window painting with a screenshot.
+- Next: fix initial placement while updates are locked and propagate size to the child layout; realize and paint visible child controls; audit input routing and tab behavior.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.

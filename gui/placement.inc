@@ -24,7 +24,10 @@ __attribute__((ms_abi)) BOOL SetWindowPlacement(HANDLE hwnd,const struct pe_wind
         w->placement_max_x=p->max_x;w->placement_max_y=p->max_y;
         w->placement_show=(p->show==2 || p->show==6 || p->show==7)?2:p->show==3?3:1;
     }
-    if(!pe_update_locked(hwnd) && !SetWindowPos(hwnd,NULL,p->normal.left,p->normal.top,(int)width,(int)height,4|0x10)) return 0;
+    /* A locked window cannot move, but its requested size must still be applied. */
+    DWORD positioning_flags=4|0x10;
+    if(pe_update_locked(hwnd)) positioning_flags|=2;
+    if(!SetWindowPos(hwnd,NULL,p->normal.left,p->normal.top,(int)width,(int)height,positioning_flags)) return 0;
     if(p->show || w->visible) {
         SetLastError(0);ShowWindow(hwnd,p->show);
         if(p->show && !w->visible) return 0;
