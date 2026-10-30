@@ -1,11 +1,11 @@
 # Resume state
 
 
-- Current commit: a04193a85, window placement state and show path.
-- Full suite: exit 0, 85 PASS, including tests/placement.exe.
-- Post-commit Notepad++ -noPlugin: exit 127, SHLWAPI!PathMatchSpecW, 442 resolved / 178 unimplemented.
-- STOP: `[BRIDGE] GUI visible top-level request hwnd=0x00000000500401fc` occurred before the unimplemented API. A visible window has not been visually confirmed.
-- Desktop visual check (fish, from the project directory): `./npp.8.9.8.portable.x64/notepad++.exe -noPlugin`; screenshot from another terminal: `import -window root /tmp/notepadpp.png`. The current run exits at PathMatchSpecW, so the window may disappear before capture.
+- Current commit: bf67a1429, PathMatchSpecW/A and PathMatchSpecExW/A.
+- Full suite: exit 0, 86 PASS, including tests/path_match.exe.
+- Post-commit Notepad++ -noPlugin: timed out after 30 seconds (exit 124), 443 resolved / 177 unimplemented; no CALLED UNIMPLEMENTED line or crash diagnostic in the log.
+- STOP: `[BRIDGE] GUI visible top-level request hwnd=0x00000000500401fc`. A visible window has not been visually confirmed; a running message loop and a hang are both possible.
+- Desktop visual check (fish, from the project directory): `./npp.8.9.8.portable.x64/notepad++.exe -noPlugin`; screenshot from another terminal: `magick import -window root /tmp/notepadpp.png` (ImageMagick 7 syntax).
 - Lock limitation: ordinary window drawing and text track damage; other direct helper drawing paths and GetDCEx override are not yet covered.
 - Restart limitation: registration is process-local; automatic restart requires an external supervisor.
 - Plain Notepad++: exit 127, KERNEL32!RaiseException while loading a plugin; real PE DLL loading is needed for plugins.
@@ -13,7 +13,7 @@
 - Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
 - Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
 - Keyboard limitation: the layout is fixed to US English and only common scan-code mappings are available.
-- Next: owner visual check; implement PathMatchSpecW/A; complete window placement and window-lock edge cases and continue the -noPlugin startup loop.
+- Next: owner visual check; if no window appears, inspect the running message loop and display helper; complete window placement and window-lock edge cases.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.
