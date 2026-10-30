@@ -110,6 +110,24 @@ static bool pe_hook_input(struct pe_msg *m)
 	return false;
 }
 static struct pe_window *pe_windows;
+/* Optional first-paint snapshot of the bridge's logical window tree. */
+static void pe_dump_windows_once(void)
+{
+    static bool dumped;
+    const char *enabled=pe_host_env("BRIDGE_DUMP_WINDOWS");
+    if(dumped || !enabled || enabled[0]!='1' || enabled[1]) return;
+    PE_STATE_GUARD;if(dumped)return;dumped=true;
+    for(struct pe_window *v=pe_windows;v;v=v->next) {
+        if(v->dead)continue;
+        raw_puts("[BRIDGE] WINDOW hwnd=");raw_hex((uintptr_t)v->handle);
+        raw_puts(" parent=");raw_hex((uintptr_t)v->parent);
+        raw_puts(" class=\"");
+        for(unsigned i=0;i<255 && v->cls->name[i];i++) { uint16_t ch=v->cls->name[i];char c=ch>=32 && ch<=126?ch:'?';raw_write(&c,1); }
+        raw_puts("\" x=");raw_hex((uint32_t)v->x);raw_puts(" y=");raw_hex((uint32_t)v->y);
+        raw_puts(" width=");raw_hex((uint32_t)v->width);raw_puts(" height=");raw_hex((uint32_t)v->height);
+        raw_puts(" visible=");raw_uint(v->visible);raw_puts(" realized=");raw_uint(v->realized);raw_puts("\n");
+    }
+}
 static struct pe_window *pe_window_lookup(HANDLE hwnd,bool own);
 __attribute__((ms_abi)) BOOL InvalidateRect(HANDLE,const struct pe_rect *,BOOL);
 static HANDLE pe_locked_window;
@@ -917,6 +935,7 @@ static bool pe_ui_pump(struct pe_ui *u, int wait)
 	if (p.a == 8 && u->focus == w->handle)
 		u->focus = NULL;
 	if (p.a == 0xf) {
+		pe_dump_windows_once();
 		PE_STATE_GUARD;
 		pe_invalidate_full(w);
 		w->erase = true;
