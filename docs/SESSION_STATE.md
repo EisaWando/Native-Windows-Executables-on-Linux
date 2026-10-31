@@ -1,8 +1,13 @@
 # Resume state
 
 
-- Current commit: a181eb161, apply requested placement size while updates are locked.
-- Full suite: exit 0, 87 PASS, including tests/tab_control.exe.
+- Current commit: 773752af8, toolbar/status-bar sizing and BRIDGE_TRACE_MOVES.
+- Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, 88 PASS, no FAIL; tests/lock_update.exe now checks the Windows lock contract.
+- Slice 1 result (`BRIDGE_DUMP_WINDOWS=1`): main `Notepad++` 1024x700 realized, ToolbarWindow32 656x16 at (0,0), msctls_statusbar32 1024x20 at (0,656), SysTabControl32 1024x676, Scintilla 1020x646. Both ReBarWindow32 children are 1024x0 and nothing but the main window is realized.
+- Slice 1 root cause: `SetWindowPos` discarded geometry while `LockWindowUpdate` was active, but Windows only defers painting; the status bar therefore kept its creation-time 0x0 rect. Geometry now applies and damage accumulates in `locked_damage` for the unlock pass. Second cause: ToolbarWindow32 ignored TB_AUTOSIZE, so the toolbar height stayed 0. Toolbar now separates TB_BUTTONSTRUCTSIZE (0x41e, record size) from TB_SETBUTTONSIZE (0x41f, button size), answers TB_GETITEMRECT/TB_GETBUTTONSIZE from stored metrics and autosizes.
+- ReBarWindow32 (`gui/rebar_layout.inc`) stores RB_INSERTBANDW bands, lays their child windows out on insert/WM_SIZE and answers RB_GETBANDCOUNT/GETRECT/GETBARHEIGHT/GETROWCOUNT/GETROWHEIGHT/IDTOINDEX/GETTOOLTIPS and RB_GET/SETBARINFO, RB_GET/SETBANDINFO.
+- Trace: `BRIDGE_TRACE_MOVES=1` (`gui/trace_moves.inc`) prints CreateWindowExW, MoveWindow, SetWindowPos, DeferWindowPos, ShowWindow and WM_SIZE/WM_WINDOWPOSCHANGED with hwnd, class, rect and caller return address.
+- Still open: the rebar keeps the height Notepad++ passes (0) because the app never queries RB_GETBARHEIGHT; toolbar button state messages (TB_ENABLEBUTTON/CHECKBUTTON/ADDBUTTONS beyond the record store) are not implemented; no child control is realized or painted (Slice 3), input routing and tab hit testing are missing (Slice 4), menu colours and glyph fallback are untouched (Slice 5).
 - Post-commit Notepad++ -noPlugin: timed out after 30 seconds (exit 124), 443 resolved / 177 unimplemented; no CALLED UNIMPLEMENTED line or crash diagnostic in this noninteractive run.
 - The owner confirmed that the main window appeared; interaction previously triggered SIGSEGV at 0x1400f1fff after TCM_GETITEMW left lParam unchanged. The new regression verifies that the stored lParam is returned, but the interactive crash has not been reproduced after the fix.
 - The screenshot at `Test-Pics/Notepad++.png` shows the menu bar and File popup with a blank client area. Initially the main window was 0x0 because SetWindowPlacement skipped resizing while updates were locked. After the fix, `BRIDGE_DUMP_WINDOWS=1` reports main 1024x700, primary tab 1024x676, primary Scintilla x=2 y=28 size=1020x646; both children are visible but not realized. Toolbar and status bar remain 0x0 and not realized. The diagnostic run timed out after 15 seconds with no crash line; interactive behavior was not checked.
