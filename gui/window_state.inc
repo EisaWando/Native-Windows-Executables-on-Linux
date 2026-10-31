@@ -13,7 +13,10 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 	struct pe_window *w = pe_window_lookup(hwnd, true);
 	if (!w)
 		return 0;
-	if (!(flags&2) && pe_update_locked(hwnd) && (x!=w->x || y!=w->y)) return 0;
+	pe_trace_geometry("SetWindowPos", __builtin_return_address(0), hwnd, x, y,
+			  width, height, flags);
+	/* LockWindowUpdate defers painting only: geometry still applies and the
+	 * damage is accumulated by InvalidateRect for the unlock pass. */
 	struct pe_windowpos pos = { hwnd, after, x, y, width, height, flags };
 	if ((flags & 3) != 3) {
 		struct pe_rect proposed = { flags & 2 ? w->x : x, flags & 2 ? w->y : y, 0, 0 };
@@ -64,6 +67,7 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 		w->y = y;
 		w->width = width;
 		w->height = height;
+		pe_trace_applied(w, __builtin_return_address(0));
 		if (resized) {
 			pe_invalidate_full(w);
 			w->erase = true;
@@ -80,10 +84,15 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 	pos.y = y;
 	pos.width = width;
 	pos.height = height;
+	pe_trace_message("SetWindowPos.WM_WINDOWPOSCHANGED",
+			 __builtin_return_address(0), hwnd, 0x47, 0, (intptr_t)&pos);
 	w->proc(hwnd, 0x47, 0, (intptr_t)&pos);
 	if (!w->dead && moved)
 		w->proc(hwnd, 3, 0,
 			(uint16_t)x | ((uint32_t)(uint16_t)y << 16));
+	if (!w->dead && resized)
+		pe_trace_message("SetWindowPos.WM_SIZE",
+				 __builtin_return_address(0), hwnd, 5, 0, 0);
 	if (!w->dead && resized)
 		w->proc(hwnd, 5, 0,
 			(uint16_t)width | ((uint32_t)(uint16_t)(height - pe_window_menu_height(w)) << 16));
@@ -92,6 +101,8 @@ __attribute__((ms_abi)) BOOL SetWindowPos(HANDLE hwnd, HANDLE after, int x,
 __attribute__((ms_abi)) BOOL MoveWindow(HANDLE hwnd, int x, int y, int width,
 					int height, BOOL repaint)
 {
+	pe_trace_geometry("MoveWindow", __builtin_return_address(0), hwnd, x, y,
+			  width, height, (DWORD)repaint);
 	BOOL ok = SetWindowPos(hwnd, NULL, x, y, width, height,
 			       4 | 16 | (repaint ? 0 : 8));
 	if (ok && repaint)

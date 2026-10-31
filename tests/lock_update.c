@@ -10,7 +10,9 @@ void mainCRTStartup(void)
     if(LockWindowUpdate(child))ExitProcess(3);
     HDC dc=GetDC(child);RECT box; if(!dc || GetClipBox(dc,&box)!=NULLREGION)ExitProcess(4);
     RECT draw={2,3,20,25};if(!FillRect(dc,&draw,(HBRUSH)(COLOR_WINDOW+1)))ExitProcess(5);
-    if(SetWindowPos(parent,NULL,5,5,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE))ExitProcess(6);
+    /* LockWindowUpdate defers painting only: geometry still applies. */
+    if(!SetWindowPos(parent,NULL,5,5,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE))ExitProcess(6);
+    RECT moved;if(!GetWindowRect(parent,&moved) || moved.left!=5 || moved.top!=5)ExitProcess(6);
     ReleaseDC(child,dc);if(!LockWindowUpdate(NULL))ExitProcess(7);
     if(!GetUpdateRect(child,&box,FALSE) || box.left!=2 || box.top!=3 || box.right!=20 || box.bottom!=25)ExitProcess(8);
     DWORD n;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"lock update ok\n",15,&n,NULL);ExitProcess(0);

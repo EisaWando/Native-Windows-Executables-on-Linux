@@ -203,9 +203,10 @@ __attribute__((ms_abi)) HANDLE BeginDeferWindowPos(int n)
     d->next=pe_defers; pe_defers=d; return d;
 }
 __attribute__((ms_abi)) HANDLE DeferWindowPos(HANDLE h,HANDLE hwnd,HANDLE after,int x,int y,int cx,int cy,DWORD flags)
-{
-    PE_STATE_GUARD;
-    struct pe_defer *d=pe_defer_lookup(h); if (!d || !pe_window_lookup(hwnd,false)) return NULL;
+{	pe_trace_geometry("DeferWindowPos", __builtin_return_address(0), hwnd, x, y,
+			  cx, cy, flags);
+	PE_STATE_GUARD;
+	struct pe_defer *d=pe_defer_lookup(h); if (!d || !pe_window_lookup(hwnd,false)) return NULL;
     if (d->count==d->capacity) {
         size_t cap=d->capacity*2;
         if (cap>65536) { SetLastError(8); return NULL; }

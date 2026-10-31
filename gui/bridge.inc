@@ -117,6 +117,7 @@ static void pe_dump_windows_once(void)
     const char *enabled=pe_host_env("BRIDGE_DUMP_WINDOWS");
     if(dumped || !enabled || enabled[0]!='1' || enabled[1]) return;
     PE_STATE_GUARD;if(dumped)return;dumped=true;
+    raw_puts("[BRIDGE] WINDOW dump at tick=");raw_uint(GetTickCount());raw_puts("\n");
     for(struct pe_window *v=pe_windows;v;v=v->next) {
         if(v->dead)continue;
         raw_puts("[BRIDGE] WINDOW hwnd=");raw_hex((uintptr_t)v->handle);
@@ -129,6 +130,13 @@ static void pe_dump_windows_once(void)
     }
 }
 static struct pe_window *pe_window_lookup(HANDLE hwnd,bool own);
+/* Defined in gui/trace_moves.inc (BRIDGE_TRACE_MOVES=1 diagnostics). */
+static void pe_trace_window(const char *, void *, struct pe_window *);
+static void pe_trace_geometry(const char *, void *, HANDLE, int, int, int, int, DWORD);
+static void pe_trace_message(const char *, void *, HANDLE, DWORD, uintptr_t, intptr_t);
+static void pe_trace_applied(struct pe_window *, void *);
+static void pe_trace_return(DWORD, intptr_t);
+static bool pe_trace_layout_class(struct pe_window *);
 __attribute__((ms_abi)) BOOL InvalidateRect(HANDLE,const struct pe_rect *,BOOL);
 static HANDLE pe_locked_window;
 static bool pe_update_locked(HANDLE hwnd)
@@ -435,7 +443,11 @@ __attribute__((ms_abi)) intptr_t CallWindowProcW(pe_wndproc proc, HANDLE hwnd,
 __attribute__((ms_abi)) intptr_t SendMessageW(HANDLE hwnd, DWORD msg,
 					      uintptr_t wp, intptr_t lp)
 {
-	return pe_ui_send(hwnd, msg, wp, lp);
+	pe_trace_message("SendMessageW", __builtin_return_address(0), hwnd, msg,
+			 wp, lp);
+	intptr_t pe_trace_result = pe_ui_send(hwnd, msg, wp, lp);
+	pe_trace_return(msg, pe_trace_result);
+	return pe_trace_result;
 }
 __attribute__((ms_abi)) BOOL ShowWindow(HANDLE, int);
 static bool pe_window_realize(struct pe_window *w)
@@ -534,6 +546,7 @@ __attribute__((ms_abi)) HANDLE CreateWindowExW(DWORD ex, const uint16_t *cls,
 		pe_windows = w;
 		pe_tree_reorder(w,NULL);
 	}
+	pe_trace_window("CreateWindowExW", __builtin_return_address(0), w);
 	if (!w->menu && !(w->style & 0x40000000u) && w->cls->data.menu_name) {
 		w->menu = LoadMenuW(instance, w->cls->data.menu_name);
 		if (!w->menu) {
@@ -728,6 +741,8 @@ __attribute__((ms_abi)) BOOL ShowWindow(HANDLE hwnd, int command)
 	}
 	if ((command==2 || command==3 || command==6 || command==7 || command==9 || command==11) &&
 	    pe_hook_dispatch(5,1,(uintptr_t)hwnd,command)) return 0;
+	pe_trace_geometry("ShowWindow", __builtin_return_address(0), hwnd, w->x,
+			  w->y, w->width, w->height, (DWORD)command);
 	BOOL previous = w->visible;
 	bool visible = command != 0;
 	if (visible && !w->realized && !w->cls->builtin && !(w->style & 0x40000000u) && w->parent != (HANDLE)(intptr_t)-3) {
@@ -1056,6 +1071,8 @@ __attribute__((ms_abi)) intptr_t DispatchMessageW(const struct pe_msg *m)
         return 0;
     }
     if (!m->hwnd) return 0;
+	pe_trace_message("DispatchMessage", __builtin_return_address(0), m->hwnd,
+			 m->message, m->wparam, m->lparam);
 	struct pe_window *w = pe_window_lookup(m->hwnd, true);
 	return w ? w->proc(m->hwnd, m->message, m->wparam, m->lparam) : 0;
 }

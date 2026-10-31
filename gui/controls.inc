@@ -18,6 +18,7 @@ struct pe_control {
 	int *parts;
 	unsigned part_count;
 	unsigned button_size;
+	int tb_cx, tb_cy, tb_bitmap_cx, tb_bitmap_cy, tb_rows, tb_pad;
 	unsigned char *buttons;
 	unsigned button_count;
 	int tab_focus,tab_min_width,tab_pad_x,tab_pad_y;
@@ -29,6 +30,11 @@ struct pe_control {
 };
 static __attribute__((ms_abi)) intptr_t pe_control_proc(HANDLE, DWORD,
 							uintptr_t, intptr_t);
+/* gui/toolbar_layout.inc and gui/rebar_layout.inc (defined after this file). */
+static __attribute__((ms_abi)) intptr_t pe_toolbar_proc(HANDLE, DWORD,
+							uintptr_t, intptr_t);
+static __attribute__((ms_abi)) intptr_t pe_rebar_proc(HANDLE, DWORD,
+						      uintptr_t, intptr_t);
 static struct pe_gui_class *pe_builtin_class(HANDLE instance,
 					     const uint16_t *name)
 {
@@ -52,7 +58,8 @@ static struct pe_gui_class *pe_builtin_class(HANDLE instance,
 			c->atom = 0xa000 + i;
 			c->builtin = i + 1;
 			c->data.size = 80;
-			c->data.wndproc = pe_control_proc;
+			c->data.wndproc = i == 5 ? pe_toolbar_proc :
+					   i == 6 ? pe_rebar_proc : pe_control_proc;
 			c->data.window_extra = 4096;
 			unsigned n = 0;
 			while (names[i][n]) {
