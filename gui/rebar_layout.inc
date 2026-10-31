@@ -191,9 +191,11 @@ static __attribute__((ms_abi)) intptr_t pe_rebar_proc(HANDLE hwnd, DWORD msg,
 		unsigned cb = *(const uint32_t *)band;
 		if (cb < 88)
 			return 0;
+		/* RBBIM_STYLE 0x1, CHILD 0x10, CHILDSIZE 0x20, SIZE 0x40,
+		 * ID 0x100, LPARAM 0x400. */
 		struct pe_rebar_band *b = &r->bands[wp];
 		DWORD mask = *(const uint32_t *)(band + 4);
-		if (mask & 0x08)
+		if (mask & 0x01)
 			b->style = *(const uint32_t *)(band + 8);
 		if (mask & 0x10)
 			b->child = *(HANDLE *)(band + 40);
@@ -203,7 +205,9 @@ static __attribute__((ms_abi)) intptr_t pe_rebar_proc(HANDLE hwnd, DWORD msg,
 		}
 		if (mask & 0x40)
 			b->cx = *(const uint32_t *)(band + 56);
-		if (mask & 0x200)
+		if (mask & 0x100)
+			b->id = *(const uint32_t *)(band + 72);
+		if (mask & 0x400)
 			b->data = *(const intptr_t *)(band + 96);
 		pe_rebar_layout(r);
 		return 1;
@@ -214,7 +218,8 @@ static __attribute__((ms_abi)) intptr_t pe_rebar_proc(HANDLE hwnd, DWORD msg,
 			return 0;
 		char *band = (void *)lp;
 		DWORD mask = *(uint32_t *)(band + 4);
-		*(uint32_t *)(band + 8) = b->style;
+		if (mask & 0x01)
+			*(uint32_t *)(band + 8) = b->style;
 		if (mask & 0x10)
 			*(HANDLE *)(band + 40) = b->child;
 		if (mask & 0x20) {
@@ -223,7 +228,9 @@ static __attribute__((ms_abi)) intptr_t pe_rebar_proc(HANDLE hwnd, DWORD msg,
 		}
 		if (mask & 0x40)
 			*(uint32_t *)(band + 56) = b->cx;
-		if (mask & 0x200)
+		if (mask & 0x100)
+			*(uint32_t *)(band + 72) = b->id;
+		if (mask & 0x400)
 			*(intptr_t *)(band + 96) = b->data;
 		return 1;
 	}
