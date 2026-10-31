@@ -44,6 +44,7 @@ x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/lock_update.exe tests/lock_update.
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/placement.exe tests/placement.c -lkernel32 -luser32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/path_match.exe tests/path_match.c -lkernel32 -lshlwapi || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/tab_control.exe tests/tab_control.c -lkernel32 -luser32 -lcomctl32 || exit 1
+x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/statusbar.exe tests/statusbar.c -lkernel32 -luser32 -lcomctl32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/image_help.exe tests/image_help.c -lkernel32 -ldbghelp || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/format_message.exe tests/format_message.c -lkernel32 || exit 1
 x86_64-w64-mingw32-gcc "${flags[@]}" -o tests/file_mapping.exe tests/file_mapping.c -lkernel32 -lpsapi || exit 1
@@ -97,6 +98,7 @@ check_pe tests/lock_update.exe 0 'lock update ok' timeout 15s tests/lock_update.
 check_pe tests/placement.exe 0 'placement ok' timeout 15s tests/placement.exe
 check_pe tests/path_match.exe 0 'path match ok' timeout 15s tests/path_match.exe
 check_pe tests/tab_control.exe 0 'tab control ok' timeout 15s tests/tab_control.exe
+check_pe tests/statusbar.exe 0 'statusbar ok' timeout 15s tests/statusbar.exe
 check_pe tests/image_help.exe 0 'image help ok' timeout 15s tests/image_help.exe
 check_pe tests/format_message.exe 0 'format message ok' timeout 15s tests/format_message.exe
 check_pe tests/file_mapping.exe 0 'file mapping ok' timeout 15s tests/file_mapping.exe
