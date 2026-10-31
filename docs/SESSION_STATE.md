@@ -1,8 +1,10 @@
 # Resume state
 
 
-- Current commit: 773752af8, toolbar/status-bar sizing and BRIDGE_TRACE_MOVES.
-- Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, 88 PASS, no FAIL; tests/lock_update.exe now checks the Windows lock contract.
+- Current commit: f0cfff4c3, rebar band fields (toolbar messages in 93e326571, slice 1 in 773752af8).
+- Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, 90 PASS, no FAIL, including tests/toolbar.exe and tests/rebar.exe; tests/lock_update.exe now checks the Windows lock contract.
+- Slice 2 done: ToolbarWindow32 handles TB_INSERTBUTTON/DELETEBUTTON, BUTTONCOUNT, GETBUTTON, GETITEMRECT, GET/SETBUTTONSIZE, SETBITMAPSIZE, SET/GETIMAGELIST, SET/GETSTATE, CHECKBUTTON, ENABLEBUTTON, HIDEBUTTON, COMMANDTOINDEX, AUTOSIZE, SET/GETEXTENDEDSTYLE, SETPADDING, GETMAXSIZE, GETTOOLTIPS, SET/GETROWS and reports button clicks as WM_COMMAND with the command id; ReBarWindow32 handles RB_INSERTBANDW, GETBANDCOUNT, GET/SETBANDINFO, GETRECT, GETBARHEIGHT, SET/GETBARINFO, IDTOINDEX, DELETEBAND, ROWCOUNT, ROWHEIGHT, GETTOOLTIPS and lays band children out at their min child height.
+- Slices 3-5 not started: child controls are still not realized or painted (only the main window is realized), there is no dirty-rect presentation, input routing/TrackMouseEvent/tab hit testing, menu colour or per-character font fallback work.
 - Slice 1 result (`BRIDGE_DUMP_WINDOWS=1`): main `Notepad++` 1024x700 realized, ToolbarWindow32 656x16 at (0,0), msctls_statusbar32 1024x20 at (0,656), SysTabControl32 1024x676, Scintilla 1020x646. Both ReBarWindow32 children are 1024x0 and nothing but the main window is realized.
 - Slice 1 root cause: `SetWindowPos` discarded geometry while `LockWindowUpdate` was active, but Windows only defers painting; the status bar therefore kept its creation-time 0x0 rect. Geometry now applies and damage accumulates in `locked_damage` for the unlock pass. Second cause: ToolbarWindow32 ignored TB_AUTOSIZE, so the toolbar height stayed 0. Toolbar now separates TB_BUTTONSTRUCTSIZE (0x41e, record size) from TB_SETBUTTONSIZE (0x41f, button size), answers TB_GETITEMRECT/TB_GETBUTTONSIZE from stored metrics and autosizes.
 - ReBarWindow32 (`gui/rebar_layout.inc`) stores RB_INSERTBANDW bands, lays their child windows out on insert/WM_SIZE and answers RB_GETBANDCOUNT/GETRECT/GETBARHEIGHT/GETROWCOUNT/GETROWHEIGHT/IDTOINDEX/GETTOOLTIPS and RB_GET/SETBARINFO, RB_GET/SETBANDINFO.
