@@ -35,7 +35,7 @@ static struct native_menu_entry *native_menu_item(struct surface *s,
 static void menu_label(char *out, const char *text)
 {
 	unsigned n = 0;
-	for (unsigned i = 0; text[i] && n < PG_TEXT - 1; i++) {
+	for (unsigned i = 0; text[i] && text[i]!='\t' && n < PG_TEXT - 1; i++) {
 		if (text[i] == '&') {
 			if (text[i + 1] == '&')
 				i++;
@@ -50,7 +50,8 @@ static int menu_width(const char *text)
 {
 	int n = 0;
 	for (; *text; text++)
-		if (((unsigned char)*text & 0xc0) != 0x80)
+		if (*text=='\t') n+=3;
+		else if (((unsigned char)*text & 0xc0) != 0x80)
 			n++;
 	return n * 8 + 20;
 }
@@ -149,6 +150,13 @@ static void native_menu_popup_draw(struct surface *s, int selected)
 			menu_text(&view, 4, y + 3, "✓", 0x202020);
 		menu_text(&view, 24, y + 3, e->text,
 			  (e->flags & 3) ? 0x888888 : 0x202020);
+		const char *shortcut=strchr(e->text,'\t');
+		if(shortcut && shortcut[1]) {
+			shortcut++;
+			int shortcut_width=menu_width(shortcut)-20;
+			menu_text(&view,view.width-24-shortcut_width,y+3,shortcut,
+				  (e->flags & 3) ? 0x888888 : 0x202020);
+		}
 		if (e->submenu)
 			menu_text(&view, view.width - 18, y + 3, ">", 0x202020);
 	}
