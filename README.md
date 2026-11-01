@@ -197,7 +197,7 @@ Please use a **virtual machine** for development.
 | **Security review** | Fuzzing the PE loader, reviewing parsing code |
 | **Docs** | Architecture docs, PE format notes, tutorials for new contributors |
 
-**Good first issues:** add a PE test for an API group (registry, time, strings); write a `.seh_handler`-based exception test; review the bridge's bounds checks; add `docs/ARCHITECTURE.md`.
+
 
 ### Ground rules
 
