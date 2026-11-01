@@ -120,6 +120,10 @@ USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxThem
 
 **Latest observed count: 443 resolved, 177 unimplemented.**
 
+### Notepad++ running
+
+https://github.com/EisaWando/Native-Windows-Executables-on-Linux/blob/main/Demo.mp4
+
 ### GUI design
 
 The team has selected an original Windows compatibility layer. The bridge owns
