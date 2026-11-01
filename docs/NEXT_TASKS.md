@@ -1,45 +1,42 @@
-# NEXT_TASKS.md — numbered task list
+# NEXT_TASKS.md — current resume plan
 
-Rules are in `AGENTS.md`. Do the FIRST unchecked task. When it is done and committed, tick its box `[x]`, update `docs/SESSION_STATE.md`, report, and stop (unless the task says "repeat").
-Tags: **[any]** = any model can do it. **[strong]** = hard task for a stronger model (do not attempt with a weak model; report "needs strong model" and stop).
+Follow the rules in `AGENTS.md`. Make one tested, reviewable change at a time;
+commit each green code batch, update `docs/SESSION_STATE.md`, and do not push
+unless the owner explicitly asks.
 
-## Phase 0 — housekeeping
-- [ ] **T0 [any]** Check for uncommitted work: `git status --short`. If `bridge/date_format.inc` and `tests/date_format.c` are uncommitted: build the bridge, run the full suite (`bash tests/run_all.sh > /tmp/run.log 2>&1; tail -n 15 /tmp/run.log; grep FAIL /tmp/run.log`). If there is no FAIL, commit with message "bridge: date and time formatting for the English/UTC profile". If something FAILS, fix only that failure or revert your change and report.
-- [ ] **T1 [any]** Create `docs/CODE_MAP.md`: a table listing each source file (`win32_bridge.c`, `bridge/*.inc`, `gui/*.inc`, `gui/host*.c`, `tests/*.c`) with ONE line describing what it contains and its main function names. Use `rg -n '^[a-zA-Z_].*\(' FILE | head -n 40` to find function names; do not read whole files. Commit "docs: add code map".
+## Current blocker
 
-## Phase 1 — Notepad++ loop (repeat)
-- [ ] **T2 [any, repeat up to 5 times per session]** One round:
-  1. Build the bridge. Run Notepad++ (command in `AGENTS.md`). Read the first `CALLED UNIMPLEMENTED` line and the `imports: resolved N, unimplemented M` line.
-  2. Implement that function plus 2-6 closely related ones (same DLL, same feature) following the shim checklist. If the function belongs to a big area that is not on this list (dialogs, exceptions, drawing a visible window), do not start it: write it in `docs/SESSION_STATE.md` and stop.
-  3. Add/extend a test, run the full suite. If green, commit with a message listing the function names.
-  4. Run Notepad++ again and note the new stop and counts.
-  After 5 rounds, report.
+The latest automated `-noPlugin` run (2026-11-01) exited 127 at
+`USER32!MessageBoxW`. Its text says `CreateDialogParam() return NULL`; investigate
+why dialog creation failed before adding unrelated GUI work. That run reported
+443 resolved and 177 unimplemented imports. The owner previously reported a
+visible Notepad++ window, but it had white menus, incomplete lower-area drawing,
+missing glyphs and slow/unresponsive tab clicks. The latest automated run did
+not reach that window path.
 
-## Current blocker (2026-10-27) — [strong]
-Notepad++ now gets as far as `USER32!CreateDialogIndirectParamW` (378 resolved /
-242 unimplemented imports), so the next step is T3a/T3b below: parse `RT_DIALOG`
-templates and create the dialog window with its child controls, send
-`WM_INITDIALOG`, then T3c for the modal loop. This is the `[strong]` boundary, so
-the batch loop stopped here instead of starting dialogs.
-Completed just before this stop: clipboard + HGLOBAL (60b5ec006), locale identity
-(cb439baf5), GetLocaleInfoW/A/Ex (25313d2a2), GetStringTypeW and LCMapString on
-generated Unicode tables (8d1f0e0ce), ExtTextOutW/A (1c8f75787). The display test
-`tests/windows.exe` passes with real X11/FreeType pixel checks.
+## Ordered work after the blocker
 
-## Phase 2 — larger features [strong]
-- [ ] **T3a [strong]** Dialog templates: parse `RT_DIALOG` resources (`DLGTEMPLATE` and `DLGTEMPLATEEX`: styles, items, class names as atoms or strings, text, extra data). Unit test with a `windres`-built dialog PE.
-- [ ] **T3b [strong]** `CreateDialogParamW`, `CreateDialogIndirectParamW`: create the dialog window and its child controls, send `WM_INITDIALOG`; `DefDlgProcW`, `GetDlgItem`, `SetDlgItemTextW`, `EndDialog`.
-- [ ] **T3c [strong]** `DialogBoxParamW` modal loop (message loop, disabling the owner, `EndDialog` result), `IsDialogMessageW` (Tab/Enter/Esc navigation).
-- [ ] **T4a [strong]** x64 unwind data: `RtlLookupFunctionEntry` (binary search of `.pdata` RUNTIME_FUNCTION table) and `RtlVirtualUnwind` (UNWIND_INFO codes: PUSH_NONVOL, ALLOC_LARGE, ALLOC_SMALL, SET_FPREG, SAVE_NONVOL(_FAR), SAVE_XMM128(_FAR), PUSH_MACHFRAME, chained info). Use only public Microsoft documentation and the mingw-w64 headers (CONTEXT layout). Test: walk a known stack from a function with a hand-written prologue. Do NOT copy Wine or ReactOS code.
-- [ ] **T4b [strong]** `RtlCaptureContext`, `RtlRestoreContext`, `RaiseException` dispatch: call handlers from UNWIND_INFO (`EXCEPTION_ROUTINE`), `RtlUnwindEx`, two-phase unwinding. Test with an assembly file using `.seh_proc` / `.seh_handler`.
-- [ ] **T4c [strong]** Map hardware faults (SIGSEGV, divide by zero, illegal instruction) to Windows exceptions (access violation 0xC0000005 etc.) delivered through the dispatcher.
+1. Reproduce and fix the dialog-creation failure; implement any required
+   `MessageBoxW/A` behavior with normal modal-window semantics and a regression.
+2. Realize and paint visible child controls. Preserve measured nonzero toolbar,
+   status-bar, tab and Scintilla geometry; add child clipping and dirty-rectangle
+   presentation.
+3. Route pointer and keyboard events to the hit-tested child, including tab
+   selection notifications, capture, focus and button commands.
+4. Finish menu colors and font fallback; never claim a visual result without a
+   desktop run or pixel test.
+5. Continue Notepad++ import batches. Start exception unwinding only if an
+   actual caught SEH/C++ exception requires it; real plugin loading remains a
+   separate larger feature.
 
-## Phase 3 — first window (owner involvement)
-- [ ] **T5 [any]** When Notepad++ requests its visible main window (the bridge prints a diagnostic at the visible show path), STOP. Write in `docs/SESSION_STATE.md` the exact command for the owner to run it on the desktop and take a screenshot. The owner will report what is on screen.
-- [ ] **T6 [strong]** After the owner reports: paint pieces in this order: client background, status bar, tab bar, toolbar, then Scintilla text (fonts, `GetTextMetricsW`, `ExtTextOutW`, clipping, caret blinking). One piece per task, each with a display test (`PE_GUI_TEST=1`).
+## Verification baseline
 
-## Phase 4 — documentation
-- [ ] **T7 [any]** Update `README.md` status checklist and import counts (`resolved N of 620`) from `docs/SESSION_STATE.md`. Keep the existing honest tone; do not claim features that are not working. Commit "docs: refresh README status".
+On 2026-11-01, `bash tests/run_all.sh` exited 0 with 83 PASS lines. The suite's
+informational Notepad++ run exited 127 at the dialog/MessageBox failure above.
+See `docs/SESSION_STATE.md` for the raw latest command output and exact resume
+command.
+
+## Completed owner batches
 
 ## Explicit owner batches completed (2026-10-26)
 - [x] Real EnumFontFamiliesExW via Fontconfig/FreeType; commit e09a0dce8.

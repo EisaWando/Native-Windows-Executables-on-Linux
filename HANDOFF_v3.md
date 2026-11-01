@@ -1,5 +1,17 @@
 # binfmt_pe — HANDOFF v3 (supersedes v2)
 
+> **Resume checkpoint (2026-11-01):** Historical entries below document earlier
+> rounds; use `docs/SESSION_STATE.md` for the current verified state. The latest
+> full `bash tests/run_all.sh` exited 0 with 83 PASS lines. Its informational
+> Notepad++ `-noPlugin` run exited 127 at `USER32!MessageBoxW`; the message text
+> reports that `CreateDialogParam()` returned NULL. The run reported 443
+> resolved and 177 unimplemented imports and did not reach a visible-window
+> request. The owner previously reported a first displayed window, with white
+> menus, missing glyphs, incomplete lower-area drawing and unresponsive tab
+> clicks. Next: diagnose dialog creation, then continue child realization,
+> painting, input and menu/font work. Do not infer a current visual result from
+> the historical logs below.
+
 Last updated: 2026-10-24. Audience: an autonomous AI coding agent (GPT-6.1-Sol) taking over a working prototype. Read this whole file, then read the source files it names before changing anything.
 
 ---

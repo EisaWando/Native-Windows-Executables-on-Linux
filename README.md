@@ -1,6 +1,6 @@
 # binfmt_pe — Native Windows Executables on Linux, Without Wine
 
-> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader. Console programs run end to end, including multi-threaded ones. For Notepad++ 8.9.8 the import resolver covers **408 of its 620 imports**; it reaches hidden main-window creation, subclass setup, menu resource loading, window tree, coordinate mapping and system-color drawing. **It does not show a visible window yet.** This README is honest about what works, what doesn't, and where help is needed.
+> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader; console programs pass the regression suite, including multithreading. The latest Notepad++ run resolved **443 of 620 imports** and exited at `USER32!MessageBoxW`, called after `CreateDialogParam` returned NULL. The owner previously confirmed that Notepad++ displayed its first window, with incomplete layout, menu colors, text glyphs and input. The latest automated run did not reach a visible window.
 
 ---
 
@@ -70,7 +70,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 
 ## Current status
 
-### Verified by real runs (`bash tests/run_all.sh`, 70 PASS, display tests skipped)
+### Verified by real runs (`bash tests/run_all.sh`, 83 PASS on 2026-11-01)
 
 - [x] Hidden/zero-size windows, properties, subclass chains and cross-thread messages
 - [x] Window tree: parent/child relationships, reparenting and newest-first z-order with hit testing
@@ -79,10 +79,10 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] Image lists, icons and cursors with mask/alpha composition
 - [x] Fonts: FreeType software glyph transport, `DrawText` layout, `ExtTextOutW`, `GrayStringW`, `DrawStateW`
 - [x] System-color drawing: cached shared system brushes, process-local `SetSysColor`, `FillRect`/`FrameRect`/`InvertRect`/`DrawFocusRect`, classic edges and frame controls
-- [x] Dialogs: modeless standard and extended templates plus `CreateDialogIndirectParamW`/`CreateDialogParamW` (modal dialogs are not implemented)
+- [x] Dialogs: modeless and modal standard/extended template creation, modal loops, timers and dialog navigation
 - [x] Headless system/common controls with tested state for selected messages
 - [x] Main-image PE resources, menu templates, strings and accelerator tables
-- [ ] Complete control behavior, resource image rasterization and modal dialogs
+- [ ] Complete control behavior, child realization/painting, input routing and resource image rasterization
 - [ ] Native menu strip/popup display verification (presenter implemented)
 
 - [x] MZ/PE (PE32+) parsing with bounds checks; PE headers and all sections mapped at their virtual addresses
@@ -97,7 +97,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] Text: UTF-8 <-> UTF-16 conversion with edge-case tests, code pages, string helpers
 - [x] Time: clocks and file-time conversions (local time is UTC for now), a consistent Windows 10 x64 system profile
 - [x] GDI/USER object tables, window class registration and system metrics
-- [x] First visible Unicode Win32 windows: message loops, software fills/lines/pixels, FreeType text, X11/XWayland presentation, resize and basic keyboard/mouse input
+- [x] Custom Unicode windows: message loops, software fills/lines/pixels, FreeType text, X11/XWayland presentation, resize and basic keyboard/mouse input
 - [x] C++ exception metadata decoder (diagnostic) and `RtlPcToFileHeader`
 - [x] Process-local registry tree with A/W APIs and a seeded Windows 10 profile
 - [x] Process-local clipboard: `CF_TEXT`/`CF_OEMTEXT`/`CF_UNICODETEXT`, delayed rendering, owner and update notifications
@@ -105,8 +105,9 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 - [x] Concurrent one-time initialization, per-thread caret state, COM apartment/task-memory bookkeeping and dialog-item helpers
 
 ### In progress / next
-- [ ] `WH_CALLWNDPROC` hooks (the current Notepad++ stop is `SetWindowsHookExW` with `WH_CALLWNDPROC`)
-- [ ] Modal dialogs (`DialogBoxParamW`, `IsDialogMessage`)
+- [ ] Notepad++ dialog startup: diagnose `CreateDialogParam` returning NULL; implement the ensuing `MessageBoxW` path as needed
+- [ ] Realize and paint visible child controls; complete menu colors, tab interaction and glyph fallback
+- [ ] Improve pointer/key routing and control input responsiveness
 - [ ] Registry persistence, complete Unicode name folding and security descriptors
 - [ ] Full GUI compatibility: complete child controls, menus/dialogs, complete message semantics and GDI, complex text shaping and native Wayland
 - [ ] x64 structured/C++ exception handling: `.pdata` unwind (`RtlLookupFunctionEntry`, `RtlVirtualUnwind`, `RtlUnwindEx`, `RaiseException`)
@@ -117,7 +118,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, and about a dozen DLLs with 1-3 imports each. The window system (USER32 + GDI32) is more than 45% of the surface and is the main remaining cost.
 
-**Current count: 408 resolved, 212 unimplemented.**
+**Latest observed count: 443 resolved, 177 unimplemented.**
 
 ### GUI design
 
@@ -128,18 +129,18 @@ and FreeType for fonts. It runs through the normal Linux loader, leaving the
 bridge freestanding. There is no Wine/ReactOS code or Windows graphics kernel ABI.
 See [the design](docs/GUI_DESIGN.md).
 
-The first milestone supports custom Unicode top-level windows. The demo draws a
-banner and text, repaints on resize, and closes with Escape or the window-manager
-close button. This is not yet a general Windows desktop/control implementation;
-Notepad++ still stops during startup on an unimplemented API, and no visible
-main window has been requested. See
-[the session checkpoint](docs/SESSION_STATE.md) for the latest tested API stop.
+The custom-window demo draws a banner and text, repaints on resize, and closes
+with Escape or the window-manager close button. The owner has seen a Notepad++
+window in a desktop run. The latest automated launch exited 127 at
+`USER32!MessageBoxW` after a dialog-creation failure. See
+[the session checkpoint](docs/SESSION_STATE.md) for the latest evidence and open
+work.
 
 ---
 
 ## Known limitations
 
-- **GUI:** controls are largely headless, modal dialogs and `IsDialogMessage` are missing, and classic frame glyphs are approximate. Native window-DC inversion is unsupported; unsupported `SystemParametersInfo` actions fail explicitly. System colors are process-local, deferred native updates are sequential, and persistent X11 topmost depends on the window manager.
+- **GUI:** child controls are not yet fully realized or painted; menus, tab input, and text glyph coverage remain incomplete. Classic frame glyphs are approximate. Native window-DC inversion is unsupported; unsupported `SystemParametersInfo` actions fail explicitly. System colors are process-local, deferred native updates are sequential, and persistent X11 topmost depends on the window manager.
 - **Windows APIs:** the clipboard is process-local; only an en-US profile exists; case mapping covers simple one-to-one mappings only (no sort keys, no bidirectional text shaping); PNG/RLE icons are unsupported; `GetProcAddress` returns NULL for anything not really implemented.
 - **Processes and exceptions:** x64 unwind/SEH and C++ exceptions are not implemented.
 
@@ -214,7 +215,10 @@ Please use a **virtual machine** for development.
 In spirit, an alternative architecture with the same goal: running Windows programs on Linux. The difference is where the loading happens (in the kernel via `binfmt`) and the intent to make a `.exe` behave like any other executable.
 
 **Does Notepad++ run?**
-Its startup code creates a hidden main window, loads its menu resource and reaches window-tree, coordinate and system-color drawing calls. It does not show a visible window yet, and its run still ends on an unimplemented API.
+The owner has reported a first visible window in a desktop run, with incomplete
+painting and input. The latest automated run exited 127 at `MessageBoxW` after
+`CreateDialogParam` returned NULL; arbitrary plugins and full UI compatibility
+remain unsupported.
 
 **Will it run games / Photoshop / my work software?**
 Not today, and possibly not for a long time. Console programs and a small custom-window GUI demo work; complex applications remain unsupported.

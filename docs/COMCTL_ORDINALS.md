@@ -1,5 +1,9 @@
 # Notepad++ 8.9.8 x64 COMCTL32 ordinal audit
 
+Audit status: the latest full regression run (2026-11-01) passed both
+`tests/commctl_ordinals.exe` and `tests/imagelist.exe`; the ordinal names and ABI
+evidence below remain the source of truth for these bindings.
+
 Complete ordinal-only import list from `objdump -p npp.8.9.8.portable.x64/notepad++.exe`.
 Names below are established by the calling ABI / installed commctrl.h signatures,
 not by an export-name table in this PE. The current public MinGW comctl32.def has

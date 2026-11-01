@@ -1,5 +1,16 @@
 # Original USER32/GDI layer: first visible window
 
+## Current status (2026-11-01)
+
+The owner has reported that Notepad++ displayed its first window in a desktop
+run. The reported UI still has incomplete lower-child painting, white menus,
+unresponsive tab clicks and missing glyphs. In the latest automated
+`-noPlugin` run, Notepad++ exited 127 at `USER32!MessageBoxW` after
+`CreateDialogParam` returned NULL; that run did not reach the visible-window
+path. The latest import diagnostic was 443 resolved and 177 unimplemented.
+Visible child realization, painting and input are still active work. See
+`docs/SESSION_STATE.md` for the exact command output and resume steps.
+
 The owner approved an original implementation on 2026-10-24. No Wine or
 ReactOS implementation is used. The kernel remains a PE/bridge loader.
 
@@ -84,7 +95,9 @@ existing guarded copy.
 Dialog units use the requested font's measured 52-letter mean width and text
 height at 96 DPI. Templates without a font use fixed base units of 8 by 16;
 the same fallback is used if the font helper cannot measure the requested font.
-Modal dialogs, the modal loop, and IsDialogMessage remain unimplemented.
+Modal dialog creation, the modal loop and `IsDialogMessage` have implementations
+and regression coverage. Their behavior is not a claim of full dialog/control
+compatibility.
 
 Current limitations: an ordinal control title is looked up as a string-table
 ID; icon/bitmap ordinal titles are not yet loaded into static controls. If

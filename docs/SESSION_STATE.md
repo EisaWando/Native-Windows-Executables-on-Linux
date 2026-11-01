@@ -1,28 +1,13 @@
 # Resume state
 
-
-- Current commit: f0cfff4c3, rebar band fields (toolbar messages in 93e326571, slice 1 in 773752af8).
-- Full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1` exit 0, 90 PASS, no FAIL, including tests/toolbar.exe and tests/rebar.exe; tests/lock_update.exe now checks the Windows lock contract.
-- Slice 2 done: ToolbarWindow32 handles TB_INSERTBUTTON/DELETEBUTTON, BUTTONCOUNT, GETBUTTON, GETITEMRECT, GET/SETBUTTONSIZE, SETBITMAPSIZE, SET/GETIMAGELIST, SET/GETSTATE, CHECKBUTTON, ENABLEBUTTON, HIDEBUTTON, COMMANDTOINDEX, AUTOSIZE, SET/GETEXTENDEDSTYLE, SETPADDING, GETMAXSIZE, GETTOOLTIPS, SET/GETROWS and reports button clicks as WM_COMMAND with the command id; ReBarWindow32 handles RB_INSERTBANDW, GETBANDCOUNT, GET/SETBANDINFO, GETRECT, GETBARHEIGHT, SET/GETBARINFO, IDTOINDEX, DELETEBAND, ROWCOUNT, ROWHEIGHT, GETTOOLTIPS and lays band children out at their min child height.
-- Slices 3-5 not started: child controls are still not realized or painted (only the main window is realized), there is no dirty-rect presentation, input routing/TrackMouseEvent/tab hit testing, menu colour or per-character font fallback work.
-- Slice 1 result (`BRIDGE_DUMP_WINDOWS=1`): main `Notepad++` 1024x700 realized, ToolbarWindow32 656x16 at (0,0), msctls_statusbar32 1024x20 at (0,656), SysTabControl32 1024x676, Scintilla 1020x646. Both ReBarWindow32 children are 1024x0 and nothing but the main window is realized.
-- Slice 1 root cause: `SetWindowPos` discarded geometry while `LockWindowUpdate` was active, but Windows only defers painting; the status bar therefore kept its creation-time 0x0 rect. Geometry now applies and damage accumulates in `locked_damage` for the unlock pass. Second cause: ToolbarWindow32 ignored TB_AUTOSIZE, so the toolbar height stayed 0. Toolbar now separates TB_BUTTONSTRUCTSIZE (0x41e, record size) from TB_SETBUTTONSIZE (0x41f, button size), answers TB_GETITEMRECT/TB_GETBUTTONSIZE from stored metrics and autosizes.
-- ReBarWindow32 (`gui/rebar_layout.inc`) stores RB_INSERTBANDW bands, lays their child windows out on insert/WM_SIZE and answers RB_GETBANDCOUNT/GETRECT/GETBARHEIGHT/GETROWCOUNT/GETROWHEIGHT/IDTOINDEX/GETTOOLTIPS and RB_GET/SETBARINFO, RB_GET/SETBANDINFO.
-- Trace: `BRIDGE_TRACE_MOVES=1` (`gui/trace_moves.inc`) prints CreateWindowExW, MoveWindow, SetWindowPos, DeferWindowPos, ShowWindow and WM_SIZE/WM_WINDOWPOSCHANGED with hwnd, class, rect and caller return address.
-- Still open: the rebar keeps the height Notepad++ passes (0) because the app never queries RB_GETBARHEIGHT; toolbar button state messages (TB_ENABLEBUTTON/CHECKBUTTON/ADDBUTTONS beyond the record store) are not implemented; no child control is realized or painted (Slice 3), input routing and tab hit testing are missing (Slice 4), menu colours and glyph fallback are untouched (Slice 5).
-- Post-commit Notepad++ -noPlugin: timed out after 30 seconds (exit 124), 443 resolved / 177 unimplemented; no CALLED UNIMPLEMENTED line or crash diagnostic in this noninteractive run.
-- The owner confirmed that the main window appeared; interaction previously triggered SIGSEGV at 0x1400f1fff after TCM_GETITEMW left lParam unchanged. The new regression verifies that the stored lParam is returned, but the interactive crash has not been reproduced after the fix.
-- The screenshot at `Test-Pics/Notepad++.png` shows the menu bar and File popup with a blank client area. Initially the main window was 0x0 because SetWindowPlacement skipped resizing while updates were locked. After the fix, `BRIDGE_DUMP_WINDOWS=1` reports main 1024x700, primary tab 1024x676, primary Scintilla x=2 y=28 size=1020x646; both children are visible but not realized. Toolbar and status bar remain 0x0 and not realized. The diagnostic run timed out after 15 seconds with no crash line; interactive behavior was not checked.
-- Tab limitations: item rectangles and hit testing use approximate fixed widths; custom item-extra storage, full selection/focus semantics and full notification coverage remain incomplete.
-- Desktop visual check (fish, from the project directory): `./npp.8.9.8.portable.x64/notepad++.exe -noPlugin`; screenshot from another terminal: `magick import -window root /tmp/notepadpp.png` (ImageMagick 7 syntax).
-- Lock limitation: ordinary window drawing and text track damage; other direct helper drawing paths and GetDCEx override are not yet covered.
-- Restart limitation: registration is process-local; automatic restart requires an external supervisor.
-- Plain Notepad++: exit 127, KERNEL32!RaiseException while loading a plugin; real PE DLL loading is needed for plugins.
-- Command-line limitation: the kernel does not populate PEB ProcessParameters, so no existing process-parameter strings were updated.
-- Stop condition: Notepad++ raises C++ exception 0xE06D7363 containing `The specified module could not be found.\r\n`. The first catchable type is `std::basic_string<wchar_t>` (`.?AV?$basic_string@_WU?$char_traits@_W@std@@V?$allocator@_W@2@@std@@`). The backtrace is `_CxxThrowException` <- plugin loader failure path <- plugin iteration <- startup. Continuing requires x64 exception dispatch/unwinding.
-- Limitations: SEC_RESERVE unsupported; VirtualQuery only handles tracked views; mapped paths are host paths; mapping access checks and shared image backing are incomplete; menu-loop MSGFILTER not implemented; VerQueryValueA requires a buffer from GetFileVersionInfoA.
-- Keyboard limitation: the layout is fixed to US English and only common scan-code mappings are available.
-- Next: realize and paint visible child controls; correct toolbar and status-bar sizing; audit input routing and tab behavior.
+- Source/code baseline: `e445c9773`; this checkpoint is included in the current docs-refresh commit.
+- Latest full suite: `bash tests/run_all.sh > /tmp/run.log 2>&1; tail -n 10 /tmp/run.log; grep -c PASS /tmp/run.log` exited 0 and printed `83`; no 126 exit was observed.
+- Latest Notepad++: `BRIDGE_DUMP_WINDOWS=1 ./npp.8.9.8.portable.x64/notepad++.exe -noPlugin` exited 127 before a window-tree dump. Imports: 443 resolved, 177 unimplemented. Last stop: `USER32.dll!MessageBoxW`; its text says `CreateDialogParam() return NULL`.
+- The owner previously reported that Notepad++ displayed its first window, but lower-area drawing, menu colors, glyph rendering and tab input were incomplete. This latest automated launch did not display a window.
+- Latest raw suite tail: `PASS tests/threads.exe (20/20) (exit 0)`; `PASS thread crash dumper ...`; `PASS exception diagnostics ...`; `INFO Notepad++: exit 127, last stop: ... USER32.dll!MessageBoxW ...`; final PASS count `83`.
+- Implemented layout state includes ToolbarWindow32 sizing and status-bar sizing; ReBar band layout and message handling are in `gui/rebar_layout.inc`. Child realization/painting and full input routing remain incomplete.
+- Next 3 steps: (1) diagnose why CreateDialogParam returns NULL and add the required dialog/message-box regression; (2) realize and paint visible children, including clipping/damage; (3) improve pointer/key routing, tabs, menu colors and glyph fallback.
+- Historical checkpoints follow; their counts and stops describe those earlier runs, not the current state.
 
 - Current commit: 2c6fe3fc3, file sections and SEC_IMAGE views.
 - Full suite: exit 0, 75 PASS, including tests/file_mapping.exe.

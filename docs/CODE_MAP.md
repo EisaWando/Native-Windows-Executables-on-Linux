@@ -29,7 +29,8 @@
 | `gui/draw_state.inc` | Temporary-mask state and disabled text drawing | `DrawStateW`, `GrayStringW` |
 | `gui/bridge.inc` | Core GUI data structures (HWND/HDC object tables, message loop, pe_window/pe_dc, RegisterClass, CreateWindow, DestroyWindow, message pump) | `pe_window_create`, `pe_dc_get`, `RegisterClassExW`, `CreateWindowExW`, `DestroyWindow`, `GetMessageW`, `DispatchMessageW` |
 | `gui/caret.inc` | Text-insertion caret: creation, show/hide, blink timer | `GetCaretBlinkTime`, `SetCaretBlinkTime`, `CreateCaret`, `DestroyCaret`, `ShowCaret`, `HideCaret` |
-| `gui/controls.inc` | Built-in window class registration (BUTTON, EDIT, LISTBOX, etc.) and InitCommonControls | `InitCommonControlsEx`, `InitCommonControls`, `pe_builtin_class`, `pe_control_proc` |
+| `gui/controls.inc` | Built-in window classes, including tab, toolbar and status-bar state/message handling | `InitCommonControlsEx`, `InitCommonControls`, `pe_builtin_class`, `pe_control_proc`, `pe_toolbar_proc` |
+| `gui/rebar_layout.inc` | ReBar band state, child layout and RB_* queries/updates | `pe_rebar_proc`, `pe_rebar_layout`, `pe_rebar_total_height` |
 | `gui/dc_state.inc` | Per-DC text/background rendering attributes | `SetTextAlign`, `GetTextAlign`, `GetTextColor`, `GetBkColor`, `GetBkMode`, `SetTextCharacterExtra`, `GetTextCharacterExtra` |
 | `gui/dialog_template.inc` | Guarded standard/extended dialog template parsing, modeless creation and dialog unit mapping | `CreateDialogParamW/A`, `CreateDialogIndirectParamW/A`, `DefDlgProcW/A`, `MapDialogRect` |
 | `gui/dialog_items.inc` | Dialog item helpers: GetDlgItem, SendDlgItemMessage, SetDlgItemText | `GetDlgCtrlID`, `GetDlgItem`, `SendDlgItemMessageW`, `SetDlgItemTextW`, `GetDlgItemTextW` |
@@ -84,6 +85,8 @@
 | `tests/queues.c` | Tests PostMessage/GetMessage queue between threads | `mainCRTStartup`, `child` |
 | `tests/registry.c` | Tests RegOpenKeyExW, RegQueryValueExW, RegCloseKey stubs | `mainCRTStartup`, `worker` |
 | `tests/resources.c` | Tests FindResourceW, LoadResource, LoadStringW, EnumResourceNames | `mainCRTStartup`, `enumerate`, `proc` |
+| `tests/rebar.c` | Tests ReBar band insertion, sizing, metadata, child layout and deletion | `mainCRTStartup` |
+| `tests/statusbar.c` | Tests status-bar sizing, parts, text, borders, simple mode and min height | `mainCRTStartup` |
 | `tests/scroll_state.c` | Tests SetScrollInfo/GetScrollInfo | `mainCRTStartup` |
 | `tests/security.c` | Tests SID allocation, equality and token open | `mainCRTStartup` |
 | `tests/sync.c` | Tests TLS/FLS, critical sections, semaphores, events | `mainCRTStartup`, `fls_cleanup` |
@@ -91,6 +94,7 @@
 | `tests/thread_fault.c` | Tests per-thread crash handler (naked faulting function) | `mainCRTStartup`, `fault` |
 | `tests/threads.c` | Stress tests TLS, InterlockedIncrement, thread creation (20 threads) | `mainCRTStartup`, `locals`, `check` |
 | `tests/thread_smoke.c` | Minimal CreateThread / WaitForSingleObject smoke test | `mainCRTStartup`, `child` |
+| `tests/toolbar.c` | Tests toolbar button state, geometry, image lists and autosizing | `mainCRTStartup` |
 | `tests/tls.c` | Tests static TLS (`.tls` section, IMAGE_TLS_DIRECTORY64) and callbacks | `mainCRTStartup`, `tls_data`, `callback` |
 | `tests/trust.c` | Tests WinVerifyTrust returns expected error | `mainCRTStartup` |
 | `tests/utf.c` | Tests MultiByteToWideChar / WideCharToMultiByte UTF-8/UTF-16 | `mainCRTStartup` |
@@ -98,3 +102,7 @@
 | `tests/syscolors_draw.c` | System color and software drawing pixel/behavior tests | `mainCRTStartup` |
 | `tests/window_tree.c` | Reparenting, enumeration, z-order, hit testing and deferred movement | `mainCRTStartup`, `visit` |
 | `tests/windows.c` | Tests CreateWindow, subclassing, hidden windows, SetProp/GetProp | `mainCRTStartup`, `test_hidden_windows`, `test_subclass`, `proc` |
+
+The window tree, geometry and child controls are implemented as bridge-side
+state. Visible child realization and complete child painting/input remain
+unfinished; see `SESSION_STATE.md` before treating control support as complete.
