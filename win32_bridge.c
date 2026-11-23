@@ -420,6 +420,10 @@ static const char *const builtin_module_names[] = {
 	"kernelbase.dll",
 	"ntdll",
 	"ntdll.dll",
+	"user32",
+	"user32.dll",
+	"gdi32",
+	"gdi32.dll",
 };
 
 #define FAKE_HMODULE_BASE 0x6ff00000ULL
@@ -490,6 +494,11 @@ static bool is_fake_module_handle(void *handle)
 	return (h >= FAKE_HMODULE_BASE && h <= FAKE_HMODULE_BASE + 0x100000ULL);
 }
 
+/* Forward declaration */
+static const char *pe_host_env(const char *name);
+
+#include "bridge/modules_trace.inc"
+
 __attribute__((ms_abi))
 void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 { PE_STATE_GUARD;
@@ -499,11 +508,47 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 
 	if (name) {
 		h = get_builtin_module_handle(name);
-		if (h)
+		if (h) {
+			pe_trace_caller_rva("LoadLibraryExW", (void *)name, h);
 			return h;
+		}
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("LoadLibraryExW", (void *)name, NULL);
 	return NULL;
+}
+__attribute__((ms_abi))
+void *LoadLibraryExA(const char *name, void *file, uint32_t flags)
+{ PE_STATE_GUARD;
+	if (!name) {
+		SetLastError(120); /* ERROR_BAD_FORMAT */
+		pe_trace_caller_rva("LoadLibraryExA", "(null)", NULL);
+		return NULL;
+	}
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		pe_trace_caller_rva("LoadLibraryExA", (void *)name, h);
+		return h;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("LoadLibraryExA", (void *)name, NULL);
+	return NULL;
+}
+__attribute__((ms_abi))
+void *LoadLibraryW(const uint16_t *name)
+{ PE_STATE_GUARD;
+	return LoadLibraryExW(name, NULL, 0);
+}
+__attribute__((ms_abi))
+void *LoadLibraryA(const char *name)
+{ PE_STATE_GUARD;
+	return LoadLibraryExA(name, NULL, 0);
 }
 
 __attribute__((ms_abi))
@@ -513,10 +558,79 @@ void *GetModuleHandleW(const uint16_t *name)
 	if (!name)
 		return (void *)0x140000000ULL; /* ImageBase */
 	h = get_builtin_module_handle(name);
-	if (h)
+	if (h) {
+		pe_trace_caller_rva("GetModuleHandleW", (void *)name, h);
 		return h;
+	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleW", (void *)name, NULL);
 	return NULL;
+}
+__attribute__((ms_abi))
+void *GetModuleHandleA(const char *name)
+{ PE_STATE_GUARD;
+	if (!name)
+		return (void *)0x140000000ULL; /* ImageBase */
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		pe_trace_caller_rva("GetModuleHandleA", (void *)name, h);
+		return h;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleA", (void *)name, NULL);
+	return NULL;
+}
+__attribute__((ms_abi))
+BOOL GetModuleHandleExW(uint32_t flags, const uint16_t *name, void **phModule)
+{ PE_STATE_GUARD;
+	(void)flags;
+	if (!phModule)
+		return false;
+	if (!name) {
+		SetLastError(87); /* ERROR_INVALID_PARAMETER */
+		return false;
+	}
+	void *h = get_builtin_module_handle(name);
+	if (h) {
+		*phModule = h;
+		pe_trace_caller_rva("GetModuleHandleExW", (void *)name, h);
+		return true;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleExW", (void *)name, NULL);
+	return false;
+}
+__attribute__((ms_abi))
+BOOL GetModuleHandleExA(uint32_t flags, const char *name, void **phModule)
+{ PE_STATE_GUARD;
+	(void)flags;
+	if (!phModule)
+		return false;
+	if (!name) {
+		SetLastError(87); /* ERROR_INVALID_PARAMETER */
+		return false;
+	}
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		*phModule = h;
+		pe_trace_caller_rva("GetModuleHandleExA", (void *)name, h);
+		return true;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleExA", (void *)name, NULL);
+	return false;
 }
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
@@ -529,14 +643,19 @@ void *GetProcAddress(void *m, const char *proc)
 
 	if ((uintptr_t)proc < 0x10000) {
 		SetLastError(127); /* ERROR_PROC_NOT_FOUND */
+		pe_trace_getprocaddr("unknown", NULL, NULL);
 		return NULL;
 	}
+	const char *modname = pe_trace_modname_from_handle(m);
 	if (is_fake_module_handle(m) || m == (void *)0x140000000ULL || m == NULL) {
-		fn = lookup_shim("kernel32.dll", proc, 0, false);
-		if (fn)
+		fn = lookup_shim(modname, proc, 0, false);
+		if (fn) {
+			pe_trace_getprocaddr(modname, proc, fn);
 			return fn;
+		}
 	}
 	SetLastError(127); /* ERROR_PROC_NOT_FOUND */
+	pe_trace_getprocaddr(modname, proc, NULL);
 	return NULL;
 }
 
@@ -4276,6 +4395,12 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return GetLastError;
 	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryExW"))
 		return LoadLibraryExW;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryExA")) return LoadLibraryExA;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryW")) return LoadLibraryW;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryA")) return LoadLibraryA;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleA")) return GetModuleHandleA;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleExW")) return GetModuleHandleExW;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleExA")) return GetModuleHandleExA;
 	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleW"))
 		return GetModuleHandleW;
 	if (!by_ordinal && ascii_equal_ci(function, "GetProcAddress"))
