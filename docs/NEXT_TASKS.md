@@ -6,13 +6,11 @@ unless the owner explicitly asks.
 
 ## Current blocker
 
-The latest automated `-noPlugin` run (2026-11-01) exited 127 at
-`USER32!MessageBoxW`. Its text says `CreateDialogParam() return NULL`; investigate
-why dialog creation failed before adding unrelated GUI work. That run reported
-443 resolved and 177 unimplemented imports. The owner previously reported a
-visible Notepad++ window, but it had white menus, incomplete lower-area drawing,
-missing glyphs and slow/unresponsive tab clicks. The latest automated run did
-not reach that window path.
+The latest automated `-noPlugin` run (2026-11-23) exited 127 at
+`RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized. Full suite: **90 PASS, 0 FAIL**.
+
+Previous run (2026-11-01) exited 127 at `USER32!MessageBoxW` after
+`CreateDialogParam() return NULL`; that run reported 443 resolved and 177 unimplemented imports.
 
 ## Ordered work after the blocker
 
@@ -31,8 +29,9 @@ not reach that window path.
 
 ## Verification baseline
 
-On 2026-11-01, `bash tests/run_all.sh` exited 0 with 83 PASS lines. The suite's
-informational Notepad++ run exited 127 at the dialog/MessageBox failure above.
+On 2026-11-23, `bash tests/run_all.sh` exited 0 with **90 PASS lines**. The suite's
+informational Notepad++ run exited 127 at `RaiseException` (unimplemented) with
+C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found.").
 See `docs/SESSION_STATE.md` for the raw latest command output and exact resume
 command.
 

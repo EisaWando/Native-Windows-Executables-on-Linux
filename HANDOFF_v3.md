@@ -582,6 +582,11 @@ Current stop: exit 127, GDI32!CreateSolidBrush, return 0x1400180c3, color 0x2020
 
 All four original regressions pass. New tests/exception_diag.c validates image membership boundaries and a synthetic MSVC exception record (type `.?AVdiagnostic_test@@`, object bytes 00 through 1f, intentional exit 127); this is decoder testing, not a Notepad++ throw or an unwind test. Stopped after this diagnostic round. No unwinding, GUI implementation, kernel changes, or reloads.
 
+---
+
+## Current Notepad++ stop (2026-11-23)
+Notepad++ exits 127 at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized. Full suite: **90 PASS, 0 FAIL**.
+
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, VERSION 3, SensApi 2, OLEAUT32 2, dwmapi 2, COMDLG32 2, WINTRUST 1, WININET 1, MSIMG32 1, dbghelp 1.
 

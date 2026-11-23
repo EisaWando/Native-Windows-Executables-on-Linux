@@ -1,15 +1,16 @@
 # Original USER32/GDI layer: first visible window
 
-## Current status (2026-11-01)
+## Current status (2026-11-23)
 
 The owner has reported that Notepad++ displayed its first window in a desktop
 run. The reported UI still has incomplete lower-child painting, white menus,
-unresponsive tab clicks and missing glyphs. In the latest automated
-`-noPlugin` run, Notepad++ exited 127 at `USER32!MessageBoxW` after
-`CreateDialogParam` returned NULL; that run did not reach the visible-window
-path. The latest import diagnostic was 443 resolved and 177 unimplemented.
-Visible child realization, painting and input are still active work. See
-`docs/SESSION_STATE.md` for the exact command output and resume steps.
+unresponsive tab clicks and missing glyphs. Debug run with BRIDGE_DUMP_WINDOWS=1
+showed main window visible=1 realized=1, but toolbar/statusbar have visible=1 realized=0;
+many child controls remain unrealized. Run with BRIDGE_TRACE_MOVES=1 for
+debug output. Current Notepad++ stop at `RaiseException` (unimplemented) with
+C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found.").
+Imports: 443 resolved, 177 unimplemented. See `docs/SESSION_STATE.md` for the exact
+command output and resume steps.
 
 The owner approved an original implementation on 2026-10-24. No Wine or
 ReactOS implementation is used. The kernel remains a PE/bridge loader.

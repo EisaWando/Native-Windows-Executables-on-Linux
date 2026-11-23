@@ -70,7 +70,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 
 ## Current status
 
-### Verified by real runs (`bash tests/run_all.sh`, 83 PASS on 2026-11-01)
+### Verified by real runs (`bash tests/run_all.sh`, 90 PASS on 2026-11-23)
 
 - [x] Hidden/zero-size windows, properties, subclass chains and cross-thread messages
 - [x] Window tree: parent/child relationships, reparenting and newest-first z-order with hit testing
@@ -118,7 +118,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, and about a dozen DLLs with 1-3 imports each. The window system (USER32 + GDI32) is more than 45% of the surface and is the main remaining cost.
 
-**Latest observed count: 443 resolved, 177 unimplemented.**
+**Latest observed count: 443 resolved, 177 unimplemented.** Notepad++ now exits 127 at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized.
 
 ### GUI design
 
@@ -131,9 +131,10 @@ See [the design](docs/GUI_DESIGN.md).
 
 The custom-window demo draws a banner and text, repaints on resize, and closes
 with Escape or the window-manager close button. The owner has seen a Notepad++
-window in a desktop run. The latest automated launch exited 127 at
-`USER32!MessageBoxW` after a dialog-creation failure. See
-[the session checkpoint](docs/SESSION_STATE.md) for the latest evidence and open
+window in a desktop run. The latest automated run showed window tree with main
+window visible=1 realized=1, then was terminated by timeout. Debug run with
+BRIDGE_DUMP_WINDOWS=1 showed the toolbar/statusbar visible but unrealized.
+See [the session checkpoint](docs/SESSION_STATE.md) for the latest evidence and open
 work.
 
 ---

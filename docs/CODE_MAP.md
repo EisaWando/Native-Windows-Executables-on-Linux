@@ -105,4 +105,5 @@
 
 The window tree, geometry and child controls are implemented as bridge-side
 state. Visible child realization and complete child painting/input remain
-unfinished; see `SESSION_STATE.md` before treating control support as complete.
+unfinished; see `docs/SESSION_STATE.md` before treating control support as complete.
+**Full suite: 90 PASS, 0 FAIL**
