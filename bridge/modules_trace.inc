@@ -72,11 +72,11 @@ static const char *pe_trace_modname_from_handle(void *handle)
 static void pe_trace_caller_rva(void *caller)
 {
 	uintptr_t addr = (uintptr_t)caller;
-	raw_puts(" caller=0x");
+	raw_puts(" caller=");
 	raw_hex(addr);
 	uintptr_t rva = 0;
 	if (pe_is_in_image(addr, &rva)) {
-		raw_puts(" rva=0x");
+		raw_puts(" rva=");
 		raw_hex(rva);
 	}
 }

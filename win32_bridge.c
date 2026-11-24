@@ -512,7 +512,7 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 			if (pe_trace_modules()) {
 				raw_puts("[TRACE] LoadLibraryExW ");
 				raw_puts(pe_utf16_to_ascii(name));
-				raw_puts(" -> 0x");
+				raw_puts(" -> ");
 				raw_hex((uintptr_t)h);
 				pe_trace_caller_rva(__builtin_return_address(0));
 				raw_puts("\n");
@@ -524,11 +524,11 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 	if (pe_trace_modules()) {
 		raw_puts("[TRACE] LoadLibraryExW ");
 		raw_puts(name ? pe_utf16_to_ascii(name) : "NULL");
-		raw_puts(" -> 0x0 caller=0x");
+		raw_puts(" -> 0x0 caller=");
 		raw_hex((uintptr_t)__builtin_return_address(0));
 		uintptr_t rva = 0;
 		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=0x");
+			raw_puts(" rva=");
 			raw_hex(rva);
 		}
 		raw_puts("\n");
@@ -547,7 +547,7 @@ void *GetModuleHandleW(const uint16_t *name)
 		if (pe_trace_modules()) {
 			raw_puts("[TRACE] GetModuleHandleW ");
 			raw_puts(pe_utf16_to_ascii(name));
-			raw_puts(" -> 0x");
+			raw_puts(" -> ");
 			raw_hex((uintptr_t)h);
 			pe_trace_caller_rva(__builtin_return_address(0));
 			raw_puts("\n");
@@ -558,11 +558,11 @@ void *GetModuleHandleW(const uint16_t *name)
 	if (pe_trace_modules()) {
 		raw_puts("[TRACE] GetModuleHandleW ");
 		raw_puts(pe_utf16_to_ascii(name));
-		raw_puts(" -> 0x0 caller=0x");
+		raw_puts(" -> 0x0 caller=");
 		raw_hex((uintptr_t)__builtin_return_address(0));
 		uintptr_t rva = 0;
 		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=0x");
+			raw_puts(" rva=");
 			raw_hex(rva);
 		}
 		raw_puts("\n");
@@ -578,11 +578,11 @@ void *GetProcAddress(void *m, const char *proc)
 	if ((uintptr_t)proc < 0x10000) {
 		SetLastError(127); /* ERROR_PROC_NOT_FOUND */
 		if (pe_trace_modules()) {
-			raw_puts("[TRACE] GetProcAddress unknown !(null) -> 0x0 caller=0x");
+			raw_puts("[TRACE] GetProcAddress unknown !(null) -> 0x0 caller=");
 			raw_hex((uintptr_t)__builtin_return_address(0));
 			uintptr_t rva = 0;
 			if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-				raw_puts(" rva=0x");
+				raw_puts(" rva=");
 				raw_hex(rva);
 			}
 			raw_puts("\n");
@@ -598,7 +598,7 @@ void *GetProcAddress(void *m, const char *proc)
 				raw_puts(modname);
 				raw_puts("!");
 				raw_puts(proc);
-				raw_puts(" -> 0x");
+				raw_puts(" -> ");
 				raw_hex((uintptr_t)fn);
 				pe_trace_caller_rva(__builtin_return_address(0));
 				raw_puts("\n");
@@ -612,11 +612,11 @@ void *GetProcAddress(void *m, const char *proc)
 		raw_puts(modname);
 		raw_puts("!");
 		raw_puts(proc);
-		raw_puts(" -> 0x0 caller=0x");
+		raw_puts(" -> 0x0 caller=");
 		raw_hex((uintptr_t)__builtin_return_address(0));
 		uintptr_t rva = 0;
 		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=0x");
+			raw_puts(" rva=");
 			raw_hex(rva);
 		}
 		raw_puts("\n");
