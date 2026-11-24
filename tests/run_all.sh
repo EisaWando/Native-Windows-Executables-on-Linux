@@ -86,6 +86,7 @@ check_pe tests/hello.exe 0 'Hello from PE!' timeout 15s tests/hello.exe
 check_pe ./hello.exe 42 'Hello from a native PE on Linux!' bash -c 'cd "$1" && timeout 15s ./hello.exe' bash "$work"
 check_pe tests/heap.exe 0 'heap ok' timeout 15s tests/heap.exe
 check_pe tests/utf.exe 0 'utf ok' timeout 15s tests/utf.exe
+check_pe tests/user32_dll.exe 0 'user32_dll ok' timeout 15s tests/user32_dll.exe
 check_pe tests/gdi_objects.exe 0 'gdi ok' timeout 15s tests/gdi_objects.exe
 check_pe tests/bitmaps.exe 0 'bitmaps ok' timeout 15s tests/bitmaps.exe
 check_pe tests/update_rgn.exe 0 'update rgn ok' env BINFMT_PE_GUI_HELPER=/nonexistent/helper timeout 15s tests/update_rgn.exe

@@ -21,22 +21,33 @@ static const char *pe_trace_modname_from_handle(void *handle)
 	}
 	return "unknown";
 }
-/* Output the return address (in notepad++.exe) from which this function was called. */
-static void pe_trace_caller_rva(const char *func, const char *mod, void *result)
+/* Output the return address (in notepad++.exe) from which this function was called.
+ * Uses the handle to get the module name for builtin modules. */
+static void pe_trace_caller_rva(const char *func, const char *mod, void *handle)
 {
 	if (!pe_trace_modules())
 		return;
 	raw_puts("[TRACE] ");
 	raw_puts(func);
 	raw_puts(" ");
-	if (mod) {
-		raw_puts(mod);
+	if (handle) {
+		/* Use handle to get module name (works for builtin modules) */
+		const char *modname = pe_trace_modname_from_handle(handle);
+		if (modname) {
+			raw_puts(modname);
+		} else {
+			raw_puts(mod);
+		}
 	} else {
-		raw_puts("(null)");
+		if (mod) {
+			raw_puts(mod);
+		} else {
+			raw_puts("(null)");
+		}
 	}
 	raw_puts(" -> ");
-	raw_hex((uintptr_t)result);
-	raw_puts(" caller=");
+	raw_hex((uintptr_t)handle);
+	raw_puts(" rva=");
 	raw_hex((uintptr_t)__builtin_return_address(0));
 	raw_puts("\n");
 }
