@@ -4581,6 +4581,63 @@ static void resolve_imports(uintptr_t image_base, uint32_t import_rva,
 		raw_uint(unimplemented);
 		raw_puts("\n");
 	}
+
+	/* BRIDGE_LIST_UNIMPLEMENTED=1: dump all unresolved imports, sorted by DLL */
+	if (unimplemented > 0 && pe_host_env("BRIDGE_LIST_UNIMPLEMENTED") && 
+	    pe_host_env("BRIDGE_LIST_UNIMPLEMENTED")[0] == '1') {
+		/* Simple bubble sort by DLL name */
+		for (unsigned i = 0; i + 1 < unknown_count; i++) {
+			for (unsigned j = 0; j + i + 1 < unknown_count; j++) {
+				unsigned int a = 0, b = 0;
+				const char *sa = unknown_imports[j].dll;
+				const char *sb = unknown_imports[j+1].dll;
+				while (sa[a] && sb[b] && sa[a] == sb[b]) { a++; b++; }
+				if (sa[a] > sb[b]) {
+					struct unknown_import tmp = unknown_imports[j];
+					unknown_imports[j] = unknown_imports[j+1];
+					unknown_imports[j+1] = tmp;
+				}
+			}
+		}
+		/* Output sorted, with per-DLL counts */
+		const char *curr_dll = NULL;
+		unsigned int dll_count = 0;
+		for (unsigned i = 0; i < unknown_count; i++) {
+			if (!curr_dll || ascii_equal_ci(curr_dll, unknown_imports[i].dll) == 0) {
+				if (curr_dll) {
+					raw_puts(" ");
+					raw_uint(dll_count);
+				}
+				raw_puts("\n");
+				raw_puts(unknown_imports[i].dll);
+				raw_puts("!");
+				curr_dll = unknown_imports[i].dll;
+				dll_count = 1;
+				/* Print first item's name/ordinal immediately */
+				if (unknown_imports[i].by_ordinal) {
+					raw_puts(" ordinal ");
+					raw_hex(unknown_imports[i].ordinal);
+				} else {
+					raw_puts(" ");
+					raw_puts(unknown_imports[i].function);
+				}
+			} else {
+				dll_count++;
+				if (unknown_imports[i].by_ordinal) {
+					raw_puts(" ordinal ");
+					raw_hex(unknown_imports[i].ordinal);
+				} else {
+					raw_puts(" ");
+					raw_puts(unknown_imports[i].function);
+				}
+			}
+		}
+		if (curr_dll) {
+			raw_puts(" ");
+			raw_uint(dll_count);
+			raw_puts("\n");
+		}
+	}
 }
 
 static void test_and_setup_teb_gs(void)
