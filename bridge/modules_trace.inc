@@ -1,5 +1,6 @@
 /* BRIDGE_TRACE_MODULES=1: log every LoadLibraryA/W/ExA/ExW, GetModuleHandle*, GetProcAddress
- * (name, result, caller PC in notepad++.exe). */
+ * (name, result, caller PC in notepad++.exe). 
+ * rva= shown only if address inside PE image; otherwise caller omitted. */
 static bool pe_trace_modules(void)
 {
 	static int enabled = -1;
@@ -22,7 +23,8 @@ static const char *pe_trace_modname_from_handle(void *handle)
 	return "unknown";
 }
 /* Output the return address (in notepad++.exe) from which this function was called.
- * Uses the handle to get the module name for builtin modules. */
+ * Uses the handle to get the module name for builtin modules.
+ * rva= shown only if address inside PE image (between pe_main_base and pe_main_end). */
 static void pe_trace_caller_rva(const char *func, const char *mod, void *handle)
 {
 	if (!pe_trace_modules())
@@ -47,8 +49,12 @@ static void pe_trace_caller_rva(const char *func, const char *mod, void *handle)
 	}
 	raw_puts(" -> ");
 	raw_hex((uintptr_t)handle);
-	raw_puts(" rva=");
-	raw_hex((uintptr_t)__builtin_return_address(0));
+	/* Only show rva= if caller is inside the PE image */
+	uintptr_t caller = (uintptr_t)__builtin_return_address(0);
+	if (caller >= pe_main_base && caller < pe_main_end) {
+		raw_puts(" rva=");
+		raw_hex(caller - pe_main_base);
+	}
 	raw_puts("\n");
 }
 
@@ -67,7 +73,11 @@ static void pe_trace_getprocaddr(const char *mod, const char *func, void *result
 	}
 	raw_puts(" -> ");
 	raw_hex((uintptr_t)result);
-	raw_puts(" caller=");
-	raw_hex((uintptr_t)__builtin_return_address(0));
+	/* Only show rva= if caller is inside the PE image */
+	uintptr_t caller = (uintptr_t)__builtin_return_address(0);
+	if (caller >= pe_main_base && caller < pe_main_end) {
+		raw_puts(" rva=");
+		raw_hex(caller - pe_main_base);
+	}
 	raw_puts("\n");
 }
