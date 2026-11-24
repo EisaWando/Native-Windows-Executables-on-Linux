@@ -12,6 +12,11 @@ typedef uint16_t WCHAR;
 #define FALSE 0
 #define TRUE 1
 
+/* Monitor return flags (from winuser.h/multimon.h) */
+#define MONITOR_DEFAULTTONULL     0x00000000
+#define MONITOR_DEFAULTTOPRIMARY  0x00000001
+#define MONITOR_DEFAULTTONEAREST  0x00000002
+
 /* RECT structure */
 typedef struct tagRECT {
     int32_t left;
@@ -54,27 +59,41 @@ typedef struct tagMONITORINFOEXW {
 #define SCREEN_WIDTH  1920
 #define SCREEN_HEIGHT 1080
 
-/* MonitorFromPoint - returns primary monitor handle */
+/* MonitorFromPoint - respects dwFlags */
 __attribute__((ms_abi)) HMONITOR MonitorFromPoint(POINT pt, DWORD dwFlags)
 {
-    (void)pt;
-    (void)dwFlags;
+    /* DEFAULTTONULL: must check bounds before returning primary */
+    if ((dwFlags & (MONITOR_DEFAULTTOPRIMARY | MONITOR_DEFAULTTONEAREST)) != 0)
+        return PRIMARY_MONITOR_HANDLE;
+    /* DEFAULTTONULL: return NULL if point is off-screen */
+    if (pt.x < 0 || pt.y < 0 || pt.x >= SCREEN_WIDTH || pt.y >= SCREEN_HEIGHT)
+        return NULL;
     return PRIMARY_MONITOR_HANDLE;
 }
 
-/* MonitorFromRect - returns primary monitor handle */
+/* MonitorFromRect - respects dwFlags */
 __attribute__((ms_abi)) HMONITOR MonitorFromRect(LPCRECT lprc, DWORD dwFlags)
 {
-    (void)lprc;
-    (void)dwFlags;
+    if (!lprc) return NULL;
+    /* DEFAULTTONULL: must check bounds before returning primary */
+    if ((dwFlags & (MONITOR_DEFAULTTOPRIMARY | MONITOR_DEFAULTTONEAREST)) != 0)
+        return PRIMARY_MONITOR_HANDLE;
+    /* DEFAULTTONULL: return NULL if rect is off-screen */
+    if (lprc->right <= 0 || lprc->bottom <= 0 || 
+        lprc->left >= SCREEN_WIDTH || lprc->top >= SCREEN_HEIGHT)
+        return NULL;
     return PRIMARY_MONITOR_HANDLE;
 }
 
-/* MonitorFromWindow - returns primary monitor handle for any valid window */
+/* MonitorFromWindow - respects dwFlags */
 __attribute__((ms_abi)) HMONITOR MonitorFromWindow(HWND hwnd, DWORD dwFlags)
 {
-    (void)hwnd;
-    (void)dwFlags;
+    /* DEFAULTTOPRIMARY/DEFAULTTONEAREST: always return primary regardless of hwnd */
+    if ((dwFlags & (MONITOR_DEFAULTTOPRIMARY | MONITOR_DEFAULTTONEAREST)) != 0)
+        return PRIMARY_MONITOR_HANDLE;
+    /* DEFAULTTONULL with invalid window (NULL hwnd) returns NULL */
+    if (!hwnd) return NULL;
+    /* DEFAULTTONULL: return primary for any valid hwnd (no real window bounds) */
     return PRIMARY_MONITOR_HANDLE;
 }
 
@@ -116,21 +135,4 @@ __attribute__((ms_abi)) BOOL GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lp
         lpmi->dwFlags = MONITORINFOF_PRIMARY;
     }
     return TRUE;
-}
-
-/* EnumDisplayMonitors types */
-typedef void *HDC;
-typedef intptr_t LPARAM;
-typedef BOOL (*MONITORENUMPROC)(HMONITOR, HDC, LPCRECT, LPARAM);
-
-__attribute__((ms_abi)) BOOL EnumDisplayMonitors(HDC hdcOptional, LPCRECT lprcClip,
-                                                    MONITORENUMPROC lpfnEnumProc, LPARAM dwData)
-{
-    (void)hdcOptional;
-    (void)lprcClip;
-    if (!lpfnEnumProc) {
-        return FALSE;
-    }
-    /* Call the callback for primary monitor */
-    return lpfnEnumProc(PRIMARY_MONITOR_HANDLE, NULL, NULL, dwData);
 }
