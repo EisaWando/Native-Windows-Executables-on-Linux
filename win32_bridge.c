@@ -420,9 +420,16 @@ static const char *const builtin_module_names[] = {
 	"kernelbase.dll",
 	"ntdll",
 	"ntdll.dll",
+	"user32",
+	"user32.dll",
+	"gdi32",
+	"gdi32.dll",
 };
 
 #define FAKE_HMODULE_BASE 0x6ff00000ULL
+
+/* Forward declarations for PE image bounds */
+static uintptr_t pe_main_base, pe_main_end;
 
 static bool utf16_ascii_equal_ci(const uint16_t *u16, const char *ascii)
 {
@@ -490,12 +497,8 @@ static bool is_fake_module_handle(void *handle)
 	return (h >= FAKE_HMODULE_BASE && h <= FAKE_HMODULE_BASE + 0x100000ULL);
 }
 
-/* Forward declarations for trace module */
-extern const char *pe_host_env(const char *name);
-static uintptr_t pe_main_base, pe_main_end;
-static const char *const builtin_module_names[];
-static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal, bool by_ordinal);
-static void *get_builtin_module_handle(const uint16_t *name);
+/* Forward declaration */
+static const char *pe_host_env(const char *name);
 
 #include "bridge/modules_trace.inc"
 
@@ -509,31 +512,46 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 	if (name) {
 		h = get_builtin_module_handle(name);
 		if (h) {
-			if (pe_trace_modules()) {
-				raw_puts("[TRACE] LoadLibraryExW ");
-				raw_puts(pe_utf16_to_ascii(name));
-				raw_puts(" -> ");
-				raw_hex((uintptr_t)h);
-				pe_trace_caller_rva(__builtin_return_address(0));
-				raw_puts("\n");
-			}
+			pe_trace_caller_rva("LoadLibraryExW", (void *)name, h);
 			return h;
 		}
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	if (pe_trace_modules()) {
-		raw_puts("[TRACE] LoadLibraryExW ");
-		raw_puts(name ? pe_utf16_to_ascii(name) : "NULL");
-		raw_puts(" -> 0x0 caller=");
-		raw_hex((uintptr_t)__builtin_return_address(0));
-		uintptr_t rva = 0;
-		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=");
-			raw_hex(rva);
-		}
-		raw_puts("\n");
-	}
+	pe_trace_caller_rva("LoadLibraryExW", (void *)name, NULL);
 	return NULL;
+}
+__attribute__((ms_abi))
+void *LoadLibraryExA(const char *name, void *file, uint32_t flags)
+{ PE_STATE_GUARD;
+	if (!name) {
+		SetLastError(120); /* ERROR_BAD_FORMAT */
+		pe_trace_caller_rva("LoadLibraryExA", "(null)", NULL);
+		return NULL;
+	}
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		pe_trace_caller_rva("LoadLibraryExA", (void *)name, h);
+		return h;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("LoadLibraryExA", (void *)name, NULL);
+	return NULL;
+}
+__attribute__((ms_abi))
+void *LoadLibraryW(const uint16_t *name)
+{ PE_STATE_GUARD;
+	return LoadLibraryExW(name, NULL, 0);
+}
+__attribute__((ms_abi))
+void *LoadLibraryA(const char *name)
+{ PE_STATE_GUARD;
+	return LoadLibraryExA(name, NULL, 0);
 }
 
 __attribute__((ms_abi))
@@ -544,31 +562,82 @@ void *GetModuleHandleW(const uint16_t *name)
 		return (void *)0x140000000ULL; /* ImageBase */
 	h = get_builtin_module_handle(name);
 	if (h) {
-		if (pe_trace_modules()) {
-			raw_puts("[TRACE] GetModuleHandleW ");
-			raw_puts(pe_utf16_to_ascii(name));
-			raw_puts(" -> ");
-			raw_hex((uintptr_t)h);
-			pe_trace_caller_rva(__builtin_return_address(0));
-			raw_puts("\n");
-		}
+		pe_trace_caller_rva("GetModuleHandleW", (void *)name, h);
 		return h;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	if (pe_trace_modules()) {
-		raw_puts("[TRACE] GetModuleHandleW ");
-		raw_puts(pe_utf16_to_ascii(name));
-		raw_puts(" -> 0x0 caller=");
-		raw_hex((uintptr_t)__builtin_return_address(0));
-		uintptr_t rva = 0;
-		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=");
-			raw_hex(rva);
-		}
-		raw_puts("\n");
-	}
+	pe_trace_caller_rva("GetModuleHandleW", (void *)name, NULL);
 	return NULL;
 }
+__attribute__((ms_abi))
+void *GetModuleHandleA(const char *name)
+{ PE_STATE_GUARD;
+	if (!name)
+		return (void *)0x140000000ULL; /* ImageBase */
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		pe_trace_caller_rva("GetModuleHandleA", (void *)name, h);
+		return h;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleA", (void *)name, NULL);
+	return NULL;
+}
+__attribute__((ms_abi))
+BOOL GetModuleHandleExW(uint32_t flags, const uint16_t *name, void **phModule)
+{ PE_STATE_GUARD;
+	(void)flags;
+	if (!phModule)
+		return false;
+	if (!name) {
+		SetLastError(87); /* ERROR_INVALID_PARAMETER */
+		return false;
+	}
+	void *h = get_builtin_module_handle(name);
+	if (h) {
+		*phModule = h;
+		pe_trace_caller_rva("GetModuleHandleExW", (void *)name, h);
+		return true;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleExW", (void *)name, NULL);
+	return false;
+}
+__attribute__((ms_abi))
+BOOL GetModuleHandleExA(uint32_t flags, const char *name, void **phModule)
+{ PE_STATE_GUARD;
+	(void)flags;
+	if (!phModule)
+		return false;
+	if (!name) {
+		SetLastError(87); /* ERROR_INVALID_PARAMETER */
+		return false;
+	}
+	uint16_t wname[260];
+	/* Convert ANSI to UTF-16 */
+	for (int i = 0; i < 260; i++) {
+		wname[i] = (uint16_t)(unsigned char)name[i];
+		if (name[i] == 0) break;
+	}
+	void *h = get_builtin_module_handle(wname);
+	if (h) {
+		*phModule = h;
+		pe_trace_caller_rva("GetModuleHandleExA", (void *)name, h);
+		return true;
+	}
+	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
+	pe_trace_caller_rva("GetModuleHandleExA", (void *)name, NULL);
+	return false;
+}
+
+static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
+		        bool by_ordinal);
 
 __attribute__((ms_abi))
 void *GetProcAddress(void *m, const char *proc)
@@ -577,54 +646,23 @@ void *GetProcAddress(void *m, const char *proc)
 
 	if ((uintptr_t)proc < 0x10000) {
 		SetLastError(127); /* ERROR_PROC_NOT_FOUND */
-		if (pe_trace_modules()) {
-			raw_puts("[TRACE] GetProcAddress unknown !(null) -> 0x0 caller=");
-			raw_hex((uintptr_t)__builtin_return_address(0));
-			uintptr_t rva = 0;
-			if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-				raw_puts(" rva=");
-				raw_hex(rva);
-			}
-			raw_puts("\n");
-		}
+		pe_trace_getprocaddr("unknown", NULL, NULL);
 		return NULL;
 	}
 	const char *modname = pe_trace_modname_from_handle(m);
 	if (is_fake_module_handle(m) || m == (void *)0x140000000ULL || m == NULL) {
-		fn = lookup_shim("kernel32.dll", proc, 0, false);
+		fn = lookup_shim(modname, proc, 0, false);
 		if (fn) {
-			if (pe_trace_modules()) {
-				raw_puts("[TRACE] GetProcAddress ");
-				raw_puts(modname);
-				raw_puts("!");
-				raw_puts(proc);
-				raw_puts(" -> ");
-				raw_hex((uintptr_t)fn);
-				pe_trace_caller_rva(__builtin_return_address(0));
-				raw_puts("\n");
-			}
+			pe_trace_getprocaddr(modname, proc, fn);
 			return fn;
 		}
 	}
 	SetLastError(127); /* ERROR_PROC_NOT_FOUND */
-	if (pe_trace_modules()) {
-		raw_puts("[TRACE] GetProcAddress ");
-		raw_puts(modname);
-		raw_puts("!");
-		raw_puts(proc);
-		raw_puts(" -> 0x0 caller=");
-		raw_hex((uintptr_t)__builtin_return_address(0));
-		uintptr_t rva = 0;
-		if (pe_is_in_image((uintptr_t)__builtin_return_address(0), &rva)) {
-			raw_puts(" rva=");
-			raw_hex(rva);
-		}
-		raw_puts("\n");
-	}
+	pe_trace_getprocaddr(modname, proc, NULL);
 	return NULL;
 }
 
-static uintptr_t pe_text_start, pe_text_end;
+static uintptr_t pe_main_base, pe_main_end, pe_text_start, pe_text_end;
 
 /* Kernel-mediated copies keep diagnostic reads from causing a second fault. */
 static bool diagnostic_read(uintptr_t addr, void *out, size_t size)
@@ -2797,7 +2835,7 @@ __attribute__((ms_abi)) BOOL GetClassInfoW(HANDLE instance, const uint16_t *name
  * environment is read privately for folder locations; the Win32 environment
  * block remains intentionally empty until its API surface is implemented. */
 static char *pe_host_environment;
-const char *pe_host_env(const char *name)
+static const char *pe_host_env(const char *name)
 {
     PE_STATE_GUARD;
     if (!pe_host_environment) {
@@ -3652,6 +3690,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/draw_state.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
+#include "bridge/monitor.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -4360,6 +4399,12 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return GetLastError;
 	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryExW"))
 		return LoadLibraryExW;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryExA")) return LoadLibraryExA;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryW")) return LoadLibraryW;
+	if (!by_ordinal && ascii_equal_ci(function, "LoadLibraryA")) return LoadLibraryA;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleA")) return GetModuleHandleA;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleExW")) return GetModuleHandleExW;
+	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleExA")) return GetModuleHandleExA;
 	if (!by_ordinal && ascii_equal_ci(function, "GetModuleHandleW"))
 		return GetModuleHandleW;
 	if (!by_ordinal && ascii_equal_ci(function, "GetProcAddress"))
@@ -4442,6 +4487,17 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return GetEnvironmentStringsW;
 	if (!by_ordinal && ascii_equal_ci(function, "FreeEnvironmentStringsW"))
 		return FreeEnvironmentStringsW;
+	/* user32.dll Monitor functions */
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromPoint"))
+		return MonitorFromPoint;
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromRect"))
+		return MonitorFromRect;
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromWindow"))
+		return MonitorFromWindow;
+	if (!by_ordinal && ascii_equal_ci(function, "GetMonitorInfoW"))
+		return GetMonitorInfoW;
+	if (!by_ordinal && ascii_equal_ci(function, "EnumDisplayMonitors"))
+		return EnumDisplayMonitors;
 	return NULL;
 }
 
