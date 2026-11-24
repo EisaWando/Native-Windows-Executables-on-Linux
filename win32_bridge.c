@@ -32,6 +32,14 @@
 #define STD_ERROR_HANDLE  ((int32_t)-12)
 #define IMAGE_ORDINAL_FLAG64 0x8000000000000000ULL
 
+/* Screen dimensions (same as GetSystemMetrics SM_CXSCREEN=1920, SM_CYSCREEN=1080) */
+#define SCREEN_WIDTH  1920
+#define SCREEN_HEIGHT 1080
+
+/* Work area dimensions (screen minus typical Windows taskbar ~40px) */
+#define SCREEN_WORK_WIDTH  1920
+#define SCREEN_WORK_HEIGHT 1040
+
 typedef void *HANDLE;
 typedef uint32_t DWORD;
 typedef int32_t BOOL;
@@ -800,7 +808,6 @@ static void print_utf16_preview(uintptr_t ptr)
     }
     raw_puts("\"");
 }
-
 static __attribute__((noreturn)) void unimplemented_dispatch(unsigned int index,
 							     uintptr_t ret_addr,
 							     uintptr_t rcx,
@@ -1733,7 +1740,7 @@ __attribute__((ms_abi)) int GetDeviceCaps(HANDLE dc, int index)
     switch (index) {
     case 0: return 0x100; case 2: return 1; /* version, raster display */
     case 4: return 508; case 6: return 286; /* physical mm at 96 DPI */
-    case 8: case 118: return 1920; case 10: case 117: return 1080;
+    case 8: case 118: return SCREEN_WIDTH; case 10: case 117: return SCREEN_HEIGHT;
     case 12: return 32; case 14: return 1; case 24: return -1;
     case 88: case 90: return 96;
     default: return 0; /* unsupported capabilities */
@@ -1753,8 +1760,8 @@ __attribute__((ms_abi)) int ReleaseDC(HANDLE window, HANDLE dc);
 __attribute__((ms_abi)) int GetSystemMetrics(int index)
 {
     switch (index) {
-    case 0: case 16: case 78: return 1920;
-    case 1: case 79: return 1080;
+    case 0: case 16: case 78: return SCREEN_WIDTH;
+    case 1: case 79: return SCREEN_HEIGHT;
     case 17: return 1017;
     case 2: case 3: case 9: case 10: case 20: case 21: case 30: case 31: return 17;
     case 4: return 23; case 15: case 51: case 54: case 55: return 19;
@@ -1819,7 +1826,7 @@ __attribute__((ms_abi)) BOOL SystemParametersInfoW(unsigned action, unsigned par
         if (*(DWORD *)out != sizeof(m) || param != sizeof(m)) { SetLastError(87); return 0; }
         pe_default_font(&m.font); memcpy(out, &m, sizeof(m)); return 1;
     }
-    case 0x30: { int32_t rect[4] = {0, 0, 1920, 1040}; memcpy(out, rect, sizeof(rect)); return 1; }
+    case 0x30: { int32_t rect[4] = {0, 0, SCREEN_WORK_WIDTH, SCREEN_WORK_HEIGHT}; memcpy(out, rect, sizeof(rect)); return 1; }
     case 0x42: { /* HIGHCONTRASTW */
         struct { uint32_t size, flags; const uint16_t *scheme; } m = {16, 0, NULL};
         if (*(DWORD *)out != sizeof(m)) { SetLastError(87); return 0; }
@@ -3676,6 +3683,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/case_map.inc"
 #include "gui/ext_text_out.inc"
 #include "bridge/bitmaps.inc"
+#include "bridge/monitor.inc"
 #include "bridge/dc_saved.inc"
 #include "gui/dialog_template.inc"
 #include "gui/coordinates.inc"
@@ -3690,7 +3698,6 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/draw_state.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
-#include "bridge/monitor.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -4014,6 +4021,8 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
     if (!by_ordinal && ascii_equal_ci(function, "GetFocus")) return GetFocus;
     if (!by_ordinal && ascii_equal_ci(function, "SetActiveWindow")) return SetActiveWindow;
     if (!by_ordinal && ascii_equal_ci(function, "GetActiveWindow")) return GetActiveWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "SetForegroundWindow")) return SetForegroundWindow;
+    if (!by_ordinal && ascii_equal_ci(function, "GetForegroundWindow")) return GetForegroundWindow;
     if (!by_ordinal && ascii_equal_ci(function, "DragAcceptFiles")) return DragAcceptFiles;
     if (!by_ordinal && ascii_equal_ci(function, "GetParent")) return GetParent;
     if (!by_ordinal && ascii_equal_ci(function, "GetWindowLongW")) return GetWindowLongW;

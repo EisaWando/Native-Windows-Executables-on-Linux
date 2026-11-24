@@ -1,6 +1,6 @@
 # Resume state
 
-- **Source/code baseline:** `209e9d20e` (N5-N6: Add monitor API shims and headless test)
+- **Source/code baseline:** `baaa4a89e` (K3: Implement dwFlags handling in MonitorFromWindow/Point/Rect)
 - **Latest full suite:** `bash tests/run_all.sh` exited 0, **92 PASS**, no FAIL, no 126 exit
 - **Latest Notepad++:** `BRIDGE_TRACE_MODULES=1 ./npp.8.9.8.portable.x64/notepad++.exe` shows imports: resolved 445, unimplemented 175. Stop: `RaiseException` code=0xe06d7363 (C++ std::bad_alloc exception) "The specified module could not be found."
 
@@ -31,16 +31,19 @@
 ### Determinism: Verified
 Three consecutive runs with `BRIDGE_TRACE_MODULES=1` showed identical NULL returns for user32.dll and shcore.dll.
 
-## Current commit: 209e9d20e
-File: `N5-N6: Add monitor API shims and headless test`
+## Current commit: baaa4a89e
+File: `K3: Implement dwFlags handling in MonitorFromWindow/Point/Rect`
 
 ## Current state
 - **Suite result:** 92 PASS, 0 FAIL
 - **Notepad++ stop:** `RaiseException` code=0xe06d7363 (C++ std::bad_alloc exception) "The specified module could not be found."
 - **Imports:** 445 resolved, 175 unimplemented
 - **New builtin modules:** user32.dll (handle 0x6ff70000), gdi32.dll (handle 0x6ff80000)
-- **Monitor API:** Implemented MonitorFromWindow, MonitorFromPoint, MonitorFromRect, GetMonitorInfoW, EnumDisplayMonitors
-- **Trace format fixed:** rva= only shown if caller inside PE image, otherwise omitted
+- **Monitor API:** Implemented MonitorFromWindow, MonitorFromPoint, MonitorFromRect, GetMonitorInfoW
+  - K3: dwFlags now honored (DEFAULTTONULL, DEFAULTTOPRIMARY, DEFAULTTONEAREST)
+  - K2: EnumDisplayMonitors unregistered (callback calling convention issue in freestanding bridge)
+  - L1: Screen size constants (SCREEN_WIDTH, SCREEN_HEIGHT) defined in monitor.inc (1920x1080)
+- **trace format fixed:** rva= only shown if caller inside PE image, otherwise omitted
 
 ## Next 3 steps (Phase 1 begins)
 1. **Diagnose RaiseException stop** - Understand why C++ exception is thrown ("The specified module could not be found.") - likely a DLL that can't be loaded

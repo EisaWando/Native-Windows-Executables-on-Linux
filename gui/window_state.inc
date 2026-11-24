@@ -163,6 +163,28 @@ __attribute__((ms_abi)) HANDLE GetActiveWindow(void)
 	struct pe_ui *u = pe_ui_current();
 	return u ? u->active : NULL;
 }
+__attribute__((ms_abi)) HANDLE SetForegroundWindow(HANDLE hwnd)
+{
+	/* If window doesn't exist, fail silently per Win32 behavior */
+	if (hwnd && !pe_window_lookup(hwnd, false))
+		return NULL;
+	struct pe_ui *u = pe_ui_current();
+	if (!u)
+		return NULL;
+	HANDLE old = u->active;
+	if (old == hwnd)
+		return old;
+	u->active = hwnd;
+	/* In headless mode, also update focus to match foreground */
+	if (hwnd)
+		u->focus = hwnd;
+	return old;
+}
+__attribute__((ms_abi)) HANDLE GetForegroundWindow(void)
+{
+	struct pe_ui *u = pe_ui_current();
+	return u ? u->active : NULL;
+}
 __attribute__((ms_abi)) HANDLE SetActiveWindow(HANDLE hwnd)
 {
 	struct pe_ui *u = pe_ui_current();

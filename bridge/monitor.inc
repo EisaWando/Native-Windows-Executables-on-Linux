@@ -59,6 +59,10 @@ typedef struct tagMONITORINFOEXW {
 #define SCREEN_WIDTH  1920
 #define SCREEN_HEIGHT 1080
 
+/* Work area dimensions (screen minus typical Windows taskbar ~40px) */
+#define SCREEN_WORK_WIDTH  1920
+#define SCREEN_WORK_HEIGHT 1040
+
 /* MonitorFromPoint - respects dwFlags */
 __attribute__((ms_abi)) HMONITOR MonitorFromPoint(POINT pt, DWORD dwFlags)
 {
