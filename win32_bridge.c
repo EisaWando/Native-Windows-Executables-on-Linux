@@ -3690,6 +3690,7 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/draw_state.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
+#include "bridge/monitor.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -4486,6 +4487,15 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return GetEnvironmentStringsW;
 	if (!by_ordinal && ascii_equal_ci(function, "FreeEnvironmentStringsW"))
 		return FreeEnvironmentStringsW;
+	/* user32.dll Monitor functions */
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromPoint"))
+		return MonitorFromPoint;
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromRect"))
+		return MonitorFromRect;
+	if (!by_ordinal && ascii_equal_ci(function, "MonitorFromWindow"))
+		return MonitorFromWindow;
+	if (!by_ordinal && ascii_equal_ci(function, "GetMonitorInfoW"))
+		return GetMonitorInfoW;
 	return NULL;
 }
 
