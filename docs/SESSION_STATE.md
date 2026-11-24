@@ -5,15 +5,16 @@
 - **Latest Notepad++:** `BRIDGE_TRACE_MODULES=1 ./npp.8.9.8.portable.x64/notepad++.exe` shows imports: resolved 445, unimplemented 175. Stop: `RaiseException` code=0xe06d7363 (C++ std::bad_alloc exception) "The specified module could not be found."
 - **Bridge budget:** PT_LOAD extent 236240 / 1048576 bytes (812336 bytes free)
 
-## Current commit: 075fea0e6
-File: `R2-R6: Add user32.dll/gdi32.dll tests, fix trace format for wide module names`
+## Current commit: e14911ab5
+File: `R2-R6: Add MessageBoxW, fix trace format for builtin modules`
 
 ## Current state
 - **Suite result:** 91 PASS, 0 FAIL (added user32_dll test)
 - **Notepad++ stop:** `RaiseException` code=0xe06d7363 (C++ std::bad_alloc exception) "The specified module could not be found."
 - **Imports:** 445 resolved, 175 unimplemented
 - **New builtin modules:** user32.dll (handle 0x6ff70000), gdi32.dll (handle 0x6ff80000)
-- **Trace format verified:** Wide module names displayed correctly, rva= field present
+- **MessageBoxW:** Implemented in bridge/msgbox.inc, registered in lookup_shim for user32.dll
+- **Trace format fixed:** rva= only shown if caller inside PE image, otherwise omitted
 
 ## Next 3 steps (Phase 1 begins)
 1. **Diagnose RaiseException stop** - Understand why C++ exception is thrown ("The specified module could not be found.") - likely a DLL that can't be loaded

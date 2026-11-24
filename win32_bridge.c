@@ -428,7 +428,7 @@ static const char *const builtin_module_names[] = {
 
 #define FAKE_HMODULE_BASE 0x6ff00000ULL
 
-/* Forward declarations for PE image bounds (used by modules_trace.inc) */
+/* Forward declarations for PE image bounds */
 static uintptr_t pe_main_base, pe_main_end;
 
 static bool utf16_ascii_equal_ci(const uint16_t *u16, const char *ascii)
@@ -662,7 +662,7 @@ void *GetProcAddress(void *m, const char *proc)
 	return NULL;
 }
 
-static uintptr_t pe_text_start, pe_text_end;
+static uintptr_t pe_main_base, pe_main_end, pe_text_start, pe_text_end;
 
 /* Kernel-mediated copies keep diagnostic reads from causing a second fault. */
 static bool diagnostic_read(uintptr_t addr, void *out, size_t size)
@@ -3690,7 +3690,6 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "gui/draw_state.inc"
 #include "gui/update_region.inc"
 #include "bridge/clipboard.inc"
-#include "bridge/msgbox.inc"
 
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
@@ -4487,9 +4486,6 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return GetEnvironmentStringsW;
 	if (!by_ordinal && ascii_equal_ci(function, "FreeEnvironmentStringsW"))
 		return FreeEnvironmentStringsW;
-    /* user32.dll MessageBoxW - returns IDOK (1) in headless mode */
-    if (!by_ordinal && ascii_equal_ci(function, "MessageBoxW"))
-        return MessageBoxW;
 	return NULL;
 }
 
