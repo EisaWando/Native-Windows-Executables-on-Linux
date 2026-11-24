@@ -31,8 +31,8 @@
 ### Determinism: Verified
 Three consecutive runs with `BRIDGE_TRACE_MODULES=1` showed identical NULL returns for user32.dll and shcore.dll.
 
-## Current commit: aebcd8ce4
-File: `trace: BRIDGE_TRACE_MODULES environment variable`
+## Current commit: cb1759729
+File: `docs: Phase 1.0 findings - user32.dll not in builtin modules`
 
 ## Current state
 - **Suite result:** 90 PASS, 0 FAIL
