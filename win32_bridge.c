@@ -4496,6 +4496,8 @@ static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal
 		return MonitorFromWindow;
 	if (!by_ordinal && ascii_equal_ci(function, "GetMonitorInfoW"))
 		return GetMonitorInfoW;
+	if (!by_ordinal && ascii_equal_ci(function, "EnumDisplayMonitors"))
+		return EnumDisplayMonitors;
 	return NULL;
 }
 

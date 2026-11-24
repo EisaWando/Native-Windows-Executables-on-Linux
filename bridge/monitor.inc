@@ -117,3 +117,20 @@ __attribute__((ms_abi)) BOOL GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lp
     }
     return TRUE;
 }
+
+/* EnumDisplayMonitors types */
+typedef void *HDC;
+typedef intptr_t LPARAM;
+typedef BOOL (*MONITORENUMPROC)(HMONITOR, HDC, LPCRECT, LPARAM);
+
+__attribute__((ms_abi)) BOOL EnumDisplayMonitors(HDC hdcOptional, LPCRECT lprcClip,
+                                                    MONITORENUMPROC lpfnEnumProc, LPARAM dwData)
+{
+    (void)hdcOptional;
+    (void)lprcClip;
+    if (!lpfnEnumProc) {
+        return FALSE;
+    }
+    /* Call the callback for primary monitor */
+    return lpfnEnumProc(PRIMARY_MONITOR_HANDLE, NULL, NULL, dwData);
+}
