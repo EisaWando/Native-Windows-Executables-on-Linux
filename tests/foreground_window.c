@@ -26,7 +26,7 @@ void __cdecl mainCRTStartup(void)
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
     if (!user32) fail = 1;
 
-    HWND (*set_fg)(HWND) = (void*)GetProcAddress(user32, "SetForegroundWindow");
+    BOOL (*set_fg)(HWND) = (void*)GetProcAddress(user32, "SetForegroundWindow");
     HWND (*get_fg)(void) = (void*)GetProcAddress(user32, "GetForegroundWindow");
     DWORD (*get_last_error)(void) = (void*)GetProcAddress(user32, "GetLastError");
     
@@ -43,18 +43,18 @@ void __cdecl mainCRTStartup(void)
     if (!RegisterClassExW(&cls)) { const char *msg = "FAIL: RegisterClassExW failed\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
 
     if (!fail) {
-        /* Test 1: Invalid hwnd should return NULL and set ERROR_INVALID_WINDOW_HANDLE */
+        /* Test 1: Invalid hwnd should return FALSE and set ERROR_INVALID_WINDOW_HANDLE */
         SetLastError(0);
-        HWND r = set_fg((HWND)0x12345678);
+        BOOL r = set_fg((HWND)0x12345678);
         DWORD err = get_last_error();
-        if (r != NULL) { const char *msg = "FAIL: SetForegroundWindow invalid hwnd returned non-NULL\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
+        if (r != FALSE) { const char *msg = "FAIL: SetForegroundWindow invalid hwnd returned TRUE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
         if (err != 1400) { const char *msg = "FAIL: GetLastError != ERROR_INVALID_WINDOW_HANDLE (1400)\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
 
-        /* Test 2: NULL hwnd should return NULL */
+        /* Test 2: NULL hwnd should return FALSE */
         SetLastError(0);
         r = set_fg(NULL);
         err = get_last_error();
-        if (r != NULL) { const char *msg = "FAIL: SetForegroundWindow NULL hwnd returned non-NULL\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
+        if (r != FALSE) { const char *msg = "FAIL: SetForegroundWindow NULL hwnd returned TRUE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
 
         /* Test 3: GetForegroundWindow initially returns NULL (no foreground window) */
         HWND fg = get_fg();
@@ -69,24 +69,24 @@ void __cdecl mainCRTStartup(void)
             BOOL iswin = IsWindow(hwnd);
             if (!iswin) { const char *msg = "FAIL: IsWindow returned FALSE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
             
-            /* Test: SetForegroundWindow returns previous foreground (NULL initially) */
-            HWND r2 = set_fg(hwnd);
-            if (r2 != NULL) { const char *msg = "FAIL: SetForegroundWindow first call didn't return NULL\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
+            /* Test: SetForegroundWindow returns TRUE for valid hwnd */
+            BOOL r2 = set_fg(hwnd);
+            if (r2 != TRUE) { const char *msg = "FAIL: SetForegroundWindow valid hwnd returned FALSE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
             
             /* GetForegroundWindow should return the window we just set */
             fg = get_fg();
             if (fg != hwnd) { const char *msg = "FAIL: GetForegroundWindow didn't return set window\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
             
-            /* Setting again should return the previous window (the one we just set) */
-            HWND prev = set_fg(hwnd);
-            if (prev != hwnd) { const char *msg = "FAIL: SetForegroundWindow same window didn't return it\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
+            /* Setting again should return TRUE */
+            BOOL r3 = set_fg(hwnd);
+            if (r3 != TRUE) { const char *msg = "FAIL: SetForegroundWindow same window returned FALSE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
             
-            /* Setting a different window should return the current one */
+            /* Setting a different window should return TRUE */
             HWND hwnd2 = CreateWindowExW(0, L"FGTestClass", L"Test2", WS_OVERLAPPEDWINDOW,
                                         200, 200, 400, 300, NULL, NULL, GetModuleHandleW(NULL), NULL);
             if (hwnd2) {
-                HWND prev2 = set_fg(hwnd2);
-                if (prev2 != hwnd) { const char *msg = "FAIL: SetForegroundWindow different window didn't return previous\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
+                BOOL r4 = set_fg(hwnd2);
+                if (r4 != TRUE) { const char *msg = "FAIL: SetForegroundWindow different window returned FALSE\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
                 fg = get_fg();
                 if (fg != hwnd2) { const char *msg = "FAIL: GetForegroundWindow didn't return second window\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
                 DestroyWindow(hwnd2);

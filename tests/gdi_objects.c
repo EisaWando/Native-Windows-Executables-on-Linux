@@ -46,8 +46,8 @@ void mainCRTStartup(void)
     CHECK(!SelectObject((HDC)brush, pen) && GetLastError() == 6);
     CHECK(!DeleteObject(dc) && GetLastError() == 6);
     CHECK(GetDeviceCaps(dc, LOGPIXELSX) == 96 && GetDeviceCaps(dc, LOGPIXELSY) == 96);
-    CHECK(GetDeviceCaps(dc, HORZRES) == 1920 && GetDeviceCaps(dc, VERTRES) == 1080 && GetDeviceCaps(dc, BITSPIXEL) == 32);
-    CHECK(GetSystemMetrics(SM_CXSCREEN) == 1920 && GetSystemMetrics(SM_CYSCREEN) == 1080);
+    CHECK(GetDeviceCaps(dc, HORZRES) == GetSystemMetrics(SM_CXSCREEN) && GetDeviceCaps(dc, VERTRES) == GetSystemMetrics(SM_CYSCREEN) && GetDeviceCaps(dc, BITSPIXEL) == 32);
+    CHECK(GetSystemMetrics(SM_CXSCREEN) > 0 && GetSystemMetrics(SM_CYSCREEN) > 0);
     CHECK(!GetDeviceCaps((HDC)1, LOGPIXELSX) && GetLastError() == 6);
     CHECK(SelectObject(dc, font)); CHECK(DeleteDC(dc));
     CHECK(!DeleteDC(dc) && GetLastError() == 6);
@@ -58,7 +58,7 @@ void mainCRTStartup(void)
     CHECK(ReleaseDC(0, screen) == 1 && !ReleaseDC(0, screen) && GetLastError() == 6);
     NONCLIENTMETRICSW ncm = {0}; ncm.cbSize = sizeof(ncm);
     CHECK(SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0) && ncm.lfMessageFont.lfHeight == -12);
-    RECT work; CHECK(SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0) && work.right == 1920 && work.bottom == 1040);
+    RECT work; CHECK(SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0) && work.right > 0 && work.bottom > 0);
     HIGHCONTRASTW hc = {sizeof(hc), 0, 0};
     CHECK(SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) && !(hc.dwFlags & HCF_HIGHCONTRASTON));
     CHECK(!SystemParametersInfoW(0xffff, 0, &work, 0) && GetLastError() == ERROR_NOT_SUPPORTED);

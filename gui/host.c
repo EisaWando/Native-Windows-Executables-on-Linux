@@ -460,28 +460,36 @@ int main(void)
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
 	signal(SIGPIPE, SIG_IGN);
 	
-	/* Open display early to get screen geometry for handshake */
+	/* Try to open display for geometry; headless fallback if unavailable */
+	int have_display = 0;
+	int screen_w = 1366, screen_h = 768;
+	int work_w = 1366, work_h = 728; /* screen minus typical taskbar ~40px */
+	
 	display = XOpenDisplay(NULL);
-	if (!display)
-		return 126;
-	XSetErrorHandler(on_error);
-	wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
-	
-	Window root = DefaultRootWindow(display);
-	XWindowAttributes attr;
-	XGetWindowAttributes(display, root, &attr);
-	
-	int work_w, work_h;
-	get_work_area(&work_w, &work_h);
+	if (display) {
+		have_display = 1;
+		XSetErrorHandler(on_error);
+		wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
+		Window root = DefaultRootWindow(display);
+		XWindowAttributes attr;
+		XGetWindowAttributes(display, root, &attr);
+		screen_w = attr.width;
+		screen_h = attr.height;
+		get_work_area(&work_w, &work_h);
+	}
 	
 	struct pg_packet p = { .magic = PG_MAGIC, .op = PG_HELLO,
 		.status = FT_Init_FreeType(&ft) ? 8 : 0,
-		.a = attr.width,
-		.b = attr.height,
+		.a = screen_w,
+		.b = screen_h,
 		.c = work_w,
-		.d = work_h };
-	if (send(3, &p, sizeof(p), MSG_NOSIGNAL) != (ssize_t)sizeof(p) ||
-	    p.status)
+		.d = work_h,
+		.flags = have_display };
+	if (p.status) {
+		dprintf(2, "FT_Init_FreeType failed: %d\n", p.status);
+		return 1;
+	}
+	if (send(3, &p, sizeof(p), MSG_NOSIGNAL) != (ssize_t)sizeof(p))
 		return 1;
 	while (1) {
 		ssize_t n = recv(3, &p, sizeof(p), MSG_TRUNC);
@@ -511,6 +519,12 @@ int main(void)
 				native_font_query(&p);
 				break;
 			case PG_CREATE:
+				if (!display) {
+					display = XOpenDisplay(NULL);
+					if (!display) { p.status=126; break; }
+					XSetErrorHandler(on_error);
+					wm_delete = XInternAtom(display,"WM_DELETE_WINDOW",False);
+				}
 				if (s || !p.id || p.c < 1 || p.d < 1 ||
 				    p.c > PG_MAX_DIM || p.d > PG_MAX_DIM) {
 					p.status = 87;

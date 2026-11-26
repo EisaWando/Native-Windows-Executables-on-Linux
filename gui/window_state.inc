@@ -1,4 +1,10 @@
 /* Logical window state exists independently of the native presentation surface. */
+#ifndef FALSE
+#define FALSE 0
+#endif
+#ifndef TRUE
+#define TRUE 1
+#endif
 struct pe_windowpos {
 	HANDLE hwnd, after;
 	int32_t x, y, width, height;
@@ -163,22 +169,26 @@ __attribute__((ms_abi)) HANDLE GetActiveWindow(void)
 	struct pe_ui *u = pe_ui_current();
 	return u ? u->active : NULL;
 }
-__attribute__((ms_abi)) HANDLE SetForegroundWindow(HANDLE hwnd)
+__attribute__((ms_abi)) BOOL SetForegroundWindow(HANDLE hwnd)
 {
-	/* If window doesn't exist, fail silently per Win32 behavior */
-	if (hwnd && !pe_window_lookup(hwnd, false))
-		return NULL;
+	/* If window doesn't exist, fail with ERROR_INVALID_WINDOW_HANDLE */
+	if (hwnd && !pe_window_lookup(hwnd, false)) {
+		SetLastError(1400); /* ERROR_INVALID_WINDOW_HANDLE */
+		return FALSE;
+	}
 	struct pe_ui *u = pe_ui_current();
-	if (!u)
-		return NULL;
-	HANDLE old = u->active;
-	if (old == hwnd)
-		return old;
+	if (!u) {
+		SetLastError(0);
+		return FALSE;
+	}
+	if (!hwnd) {
+		SetLastError(0);
+		return FALSE;
+	}
 	u->active = hwnd;
 	/* In headless mode, also update focus to match foreground */
-	if (hwnd)
-		u->focus = hwnd;
-	return old;
+	u->focus = hwnd;
+	return TRUE;
 }
 __attribute__((ms_abi)) HANDLE GetForegroundWindow(void)
 {

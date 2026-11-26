@@ -60,6 +60,7 @@ struct pe_ui {
 	/* Screen geometry from host (set during PG_HELLO handshake) */
 	int screen_width, screen_height;
 	int work_width, work_height;
+	int have_display;
 };
 struct pe_property;
 struct pe_subclass;
@@ -214,13 +215,13 @@ static struct pe_ui *pe_ui_current(void)
 inline int pe_screen_width(void)
 {
 	struct pe_ui *u = pe_ui_current();
-	return u && u->screen_width > 0 ? u->screen_width : 1920;
+	return u && u->screen_width > 0 ? u->screen_width : 1366;
 }
 
 inline int pe_screen_height(void)
 {
 	struct pe_ui *u = pe_ui_current();
-	return u && u->screen_height > 0 ? u->screen_height : 1080;
+	return u && u->screen_height > 0 ? u->screen_height : 768;
 }
 
 inline int pe_work_width(void)
@@ -318,10 +319,11 @@ static bool pe_ui_connect(struct pe_ui *u)
 		return false;
 	}
 	/* Store screen geometry from host handshake */
-	u->screen_width = hello.a > 0 ? hello.a : 1920;
-	u->screen_height = hello.b > 0 ? hello.b : 1080;
+	u->screen_width = hello.a > 0 ? hello.a : 1366;
+	u->screen_height = hello.b > 0 ? hello.b : 768;
 	u->work_width = hello.c > 0 ? hello.c : u->screen_width;
 	u->work_height = hello.d > 0 ? hello.d : u->screen_height;
+	u->have_display = hello.flags != 0;
 	return true;
 }
 static bool pe_ui_rpc(struct pe_ui *u, struct pg_packet *p)
