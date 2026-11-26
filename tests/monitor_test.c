@@ -58,7 +58,9 @@ void __cdecl mainCRTStartup(void)
     if (!h4) { const char *msg = "FAIL: pt_out nearest NULL\n"; WriteFile(out, msg, my_strlen(msg), &written, NULL); fail=1; }
 
     /* Test MonitorFromRect with default flags */
-    RECT rt_in = { 0, 0, 1920, 1080 };
+    int cxScreen = GetSystemMetrics(0);  /* SM_CXSCREEN */
+    int cyScreen = GetSystemMetrics(1);  /* SM_CYSCREEN */
+    RECT rt_in = { 0, 0, cxScreen, cyScreen };
     RECT rt_out = { 3000, 3000, 4000, 5000 };
     
     HMONITOR h5 = from_rect(&rt_in, MONITOR_DEFAULTTONULL);
@@ -83,8 +85,8 @@ void __cdecl mainCRTStartup(void)
     mi.cbSize = sizeof(mi);
     if (!get_info(PRIMARY_MONITOR, &mi)) fail = 1;
     if (mi.dwFlags != MONITORINFOF_PRIMARY) fail = 1;
-    if (mi.rcMonitor.right - mi.rcMonitor.left != 1920) fail = 1;
-    if (mi.rcMonitor.bottom - mi.rcMonitor.top != 1080) fail = 1;
+    if (mi.rcMonitor.right - mi.rcMonitor.left != GetSystemMetrics(0)) fail = 1;
+    if (mi.rcMonitor.bottom - mi.rcMonitor.top != GetSystemMetrics(1)) fail = 1;
 
     if (fail) ExitProcess(1);
     
