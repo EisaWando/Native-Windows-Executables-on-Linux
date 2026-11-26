@@ -17,6 +17,10 @@
 #define SA_RESTORER 0x04000000
 #endif
 
+#ifndef AT_FDCWD
+#define AT_FDCWD (-100)
+#endif
+
 #ifndef SYS_arch_prctl
 #define SYS_arch_prctl 158
 #endif
@@ -432,6 +436,12 @@ static const char *const builtin_module_names[] = {
 	"gdi32.dll",
 	"shcore",
 	"shcore.dll",
+	"d2d1",
+	"d2d1.dll",
+	"dwrite",
+	"dwrite.dll",
+	"d3d11",
+	"d3d11.dll",
 };
 
 #define FAKE_HMODULE_BASE 0x6ff00000ULL
@@ -502,11 +512,20 @@ static void *get_builtin_module_handle(const uint16_t *name)
 static bool is_fake_module_handle(void *handle)
 {
 	uintptr_t h = (uintptr_t)handle;
-	return (h >= FAKE_HMODULE_BASE && h <= FAKE_HMODULE_BASE + 0x100000ULL);
+	return (h >= FAKE_HMODULE_BASE && h <= FAKE_HMODULE_BASE + 0x1000000ULL);
 }
 
 /* Forward declaration */
 static const char *pe_host_env(const char *name);
+
+/* Forward declaration for trace helper */
+__attribute__((ms_abi)) int WideCharToMultiByte(DWORD cp, DWORD flags,
+					       const uint16_t *src, int srclen,
+					       char *dst, int dstlen,
+					       const char *default_char, int *used_default);
+
+/* Forward declaration for Z:\ path handler */
+static int pe_zpath_to_linux(const uint16_t *zpath, char *linux_path, int cap);
 
 #include "bridge/modules_trace.inc"
 
@@ -520,12 +539,22 @@ void *LoadLibraryExW(const uint16_t *name, void *file, uint32_t flags)
 	if (name) {
 		h = get_builtin_module_handle(name);
 		if (h) {
-			pe_trace_caller_rva("LoadLibraryExW", (void *)name, h);
+			pe_trace_caller_rva_w("LoadLibraryExW", name, h);
+			return h;
+		}
+		/* Try Z:\ path */
+		char linux_path[4096];
+		if (pe_zpath_to_linux(name, linux_path, sizeof(linux_path))) {
+			/* File exists - return a fake handle for now.
+			 * TODO: Actually load the PE file. */
+			static uintptr_t next_zhandle = FAKE_HMODULE_BASE + 0x100000ULL;
+			h = (void *)next_zhandle++;
+			pe_trace_caller_rva_w("LoadLibraryExW", name, h);
 			return h;
 		}
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("LoadLibraryExW", (void *)name, NULL);
+	pe_trace_caller_rva_w("LoadLibraryExW", name, NULL);
 	return NULL;
 }
 __attribute__((ms_abi))
@@ -533,7 +562,7 @@ void *LoadLibraryExA(const char *name, void *file, uint32_t flags)
 { PE_STATE_GUARD;
 	if (!name) {
 		SetLastError(120); /* ERROR_BAD_FORMAT */
-		pe_trace_caller_rva("LoadLibraryExA", "(null)", NULL);
+		pe_trace_caller_rva_a("LoadLibraryExA", "(null)", NULL);
 		return NULL;
 	}
 	uint16_t wname[260];
@@ -544,11 +573,11 @@ void *LoadLibraryExA(const char *name, void *file, uint32_t flags)
 	}
 	void *h = get_builtin_module_handle(wname);
 	if (h) {
-		pe_trace_caller_rva("LoadLibraryExA", (void *)name, h);
+		pe_trace_caller_rva_a("LoadLibraryExA", name, h);
 		return h;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("LoadLibraryExA", (void *)name, NULL);
+	pe_trace_caller_rva_a("LoadLibraryExA", name, NULL);
 	return NULL;
 }
 __attribute__((ms_abi))
@@ -570,11 +599,11 @@ void *GetModuleHandleW(const uint16_t *name)
 		return (void *)0x140000000ULL; /* ImageBase */
 	h = get_builtin_module_handle(name);
 	if (h) {
-		pe_trace_caller_rva("GetModuleHandleW", (void *)name, h);
+		pe_trace_caller_rva_w("GetModuleHandleW", name, h);
 		return h;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("GetModuleHandleW", (void *)name, NULL);
+	pe_trace_caller_rva_w("GetModuleHandleW", name, NULL);
 	return NULL;
 }
 __attribute__((ms_abi))
@@ -590,11 +619,11 @@ void *GetModuleHandleA(const char *name)
 	}
 	void *h = get_builtin_module_handle(wname);
 	if (h) {
-		pe_trace_caller_rva("GetModuleHandleA", (void *)name, h);
+		pe_trace_caller_rva_a("GetModuleHandleA", name, h);
 		return h;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("GetModuleHandleA", (void *)name, NULL);
+	pe_trace_caller_rva_a("GetModuleHandleA", name, NULL);
 	return NULL;
 }
 __attribute__((ms_abi))
@@ -610,11 +639,11 @@ BOOL GetModuleHandleExW(uint32_t flags, const uint16_t *name, void **phModule)
 	void *h = get_builtin_module_handle(name);
 	if (h) {
 		*phModule = h;
-		pe_trace_caller_rva("GetModuleHandleExW", (void *)name, h);
+		pe_trace_caller_rva_w("GetModuleHandleExW", name, h);
 		return true;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("GetModuleHandleExW", (void *)name, NULL);
+	pe_trace_caller_rva_w("GetModuleHandleExW", name, NULL);
 	return false;
 }
 __attribute__((ms_abi))
@@ -636,11 +665,11 @@ BOOL GetModuleHandleExA(uint32_t flags, const char *name, void **phModule)
 	void *h = get_builtin_module_handle(wname);
 	if (h) {
 		*phModule = h;
-		pe_trace_caller_rva("GetModuleHandleExA", (void *)name, h);
+		pe_trace_caller_rva_a("GetModuleHandleExA", name, h);
 		return true;
 	}
 	SetLastError(126); /* ERROR_MOD_NOT_FOUND */
-	pe_trace_caller_rva("GetModuleHandleExA", (void *)name, NULL);
+	pe_trace_caller_rva_a("GetModuleHandleExA", name, NULL);
 	return false;
 }
 
@@ -1398,6 +1427,37 @@ static int pe_windows_path(char *out, int cap, int cwd)
     for (int i = 0; i < n; i++) out[i+2] = path[i] == '/' ? '\\' : path[i];
     out[n+2] = 0;
     return n+2;
+}
+
+/* Convert Z:\ path to Linux path and check if file exists.
+ * Returns 1 if file exists and linux_path is filled, 0 otherwise. */
+static int pe_zpath_to_linux(const uint16_t *zpath, char *linux_path, int cap)
+{
+    /* Check if path starts with "Z:\" or "Z:/" */
+    if (!zpath || zpath[0] != 'Z' || zpath[1] != ':' ||
+        (zpath[2] != '\\' && zpath[2] != '/'))
+        return 0;
+
+    /* Convert UTF-16 to UTF-8 */
+    char utf8[4096];
+    if (!WideCharToMultiByte(65001, 0, zpath, -1, utf8, sizeof(utf8), NULL, NULL))
+        return 0;
+
+    /* Skip "Z:\" or "Z:/" */
+    const char *p = utf8 + 3;
+    if (!*p) return 0; /* Just "Z:\" */
+
+    /* Build Linux path: / + rest of path with \ -> / */
+    if (cap < 2) return 0;
+    linux_path[0] = '/';
+    int i = 0;
+    for (; p[i] && i < cap - 2; i++) {
+        linux_path[i+1] = (p[i] == '\\') ? '/' : p[i];
+    }
+    linux_path[i+1] = 0;
+
+    /* Check if file exists */
+    return raw_syscall4(SYS_faccessat, AT_FDCWD, (long)linux_path, F_OK, 0) == 0;
 }
 __attribute__((ms_abi)) DWORD GetModuleFileNameW(void *module, uint16_t *out, DWORD cap)
 {
@@ -3708,9 +3768,73 @@ __attribute__((ms_abi)) DWORD RegGetValueA(HANDLE h,const char *sub,const char *
 #include "bridge/clipboard.inc"
 #include "bridge/monitor.inc"
 
+/* Stub for plugin isUnicode check - returns TRUE for Unicode plugins */
+__attribute__((ms_abi)) BOOL isUnicode_stub(void)
+{
+    return TRUE;
+}
+
+/* Stubs for Notepad++ plugin API */
+typedef long long LRESULT;
+typedef unsigned int UINT;
+typedef uintptr_t WPARAM;
+typedef intptr_t LPARAM;
+
+/* FuncItem structure for Notepad++ plugin API */
+struct FuncItem {
+    uint16_t _itemName[64];
+    void (*_pFunc)(void);
+    int _idMenuItem;
+    uint16_t _init2Check;
+    void *_pShKey;
+};
+
+__attribute__((ms_abi)) void setInfo_stub(void *notepadPlusData)
+{
+    (void)notepadPlusData;
+}
+
+__attribute__((ms_abi)) const uint16_t *getName_stub(void)
+{
+    static const uint16_t name[] = {'S','t','u','b','P','l','u','g','i','n',0};
+    return name;
+}
+
+/* Minimal FuncItem array for plugin */
+static struct FuncItem plugin_func_items[1] = {
+    { { 'D','u','m','m','y',0 }, NULL, 0, 0, NULL }
+};
+
+__attribute__((ms_abi)) struct FuncItem *getFuncsArray_stub(int *nbF)
+{
+    if (nbF) *nbF = 1; /* One dummy function item */
+    return plugin_func_items;
+}
+
+__attribute__((ms_abi)) void beNotified_stub(void *notifyCode)
+{
+    (void)notifyCode;
+}
+
+__attribute__((ms_abi)) LRESULT messageProc_stub(UINT Message, WPARAM wParam, LPARAM lParam)
+{
+    (void)Message; (void)wParam; (void)lParam;
+    return TRUE;
+}
+
 static void *lookup_shim(const char *dll, const char *function, uint16_t ordinal,
 		        bool by_ordinal)
 {
+    /* Handle Z-path plugin API */
+    if (!by_ordinal && ascii_equal_ci(dll, "Z-path")) {
+        if (ascii_equal_ci(function, "isUnicode")) return isUnicode_stub;
+        if (ascii_equal_ci(function, "setInfo")) return setInfo_stub;
+        if (ascii_equal_ci(function, "getName")) return getName_stub;
+        if (ascii_equal_ci(function, "getFuncsArray")) return getFuncsArray_stub;
+        if (ascii_equal_ci(function, "beNotified")) return beNotified_stub;
+        if (ascii_equal_ci(function, "messageProc")) return messageProc_stub;
+    }
+
     if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecW")) return PathMatchSpecW;
     if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecA")) return PathMatchSpecA;
     if (!by_ordinal && ascii_equal_ci(function, "PathMatchSpecExW")) return PathMatchSpecExW;
