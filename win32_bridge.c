@@ -430,6 +430,8 @@ static const char *const builtin_module_names[] = {
 	"user32.dll",
 	"gdi32",
 	"gdi32.dll",
+	"shcore",
+	"shcore.dll",
 };
 
 #define FAKE_HMODULE_BASE 0x6ff00000ULL
