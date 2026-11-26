@@ -57,6 +57,9 @@ struct pe_ui {
 	HANDLE caret, caret_bitmap;
 	int caret_x, caret_y, caret_width, caret_height, caret_hidden;
 	unsigned com_refs, com_mode, ole_refs;
+	/* Screen geometry from host (set during PG_HELLO handshake) */
+	int screen_width, screen_height;
+	int work_width, work_height;
 };
 struct pe_property;
 struct pe_subclass;
@@ -206,6 +209,31 @@ static struct pe_ui *pe_ui_current(void)
 	pe_uis = u;
 	return u;
 }
+
+/* Screen geometry helpers - read from current UI thread's pe_ui */
+inline int pe_screen_width(void)
+{
+	struct pe_ui *u = pe_ui_current();
+	return u && u->screen_width > 0 ? u->screen_width : 1920;
+}
+
+inline int pe_screen_height(void)
+{
+	struct pe_ui *u = pe_ui_current();
+	return u && u->screen_height > 0 ? u->screen_height : 1080;
+}
+
+inline int pe_work_width(void)
+{
+	struct pe_ui *u = pe_ui_current();
+	return u && u->work_width > 0 ? u->work_width : pe_screen_width();
+}
+
+inline int pe_work_height(void)
+{
+	struct pe_ui *u = pe_ui_current();
+	return u && u->work_height > 0 ? u->work_height : pe_screen_height();
+}
 static bool pe_ui_receive(struct pe_ui *u, struct pg_packet *p)
 {
 	struct {
@@ -289,6 +317,11 @@ static bool pe_ui_connect(struct pe_ui *u)
 		SetLastError(126);
 		return false;
 	}
+	/* Store screen geometry from host handshake */
+	u->screen_width = hello.a > 0 ? hello.a : 1920;
+	u->screen_height = hello.b > 0 ? hello.b : 1080;
+	u->work_width = hello.c > 0 ? hello.c : u->screen_width;
+	u->work_height = hello.d > 0 ? hello.d : u->screen_height;
 	return true;
 }
 static bool pe_ui_rpc(struct pe_ui *u, struct pg_packet *p)

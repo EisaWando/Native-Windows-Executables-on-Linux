@@ -2,6 +2,7 @@
 #include "protocol.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <fontconfig/fontconfig.h>
 #include <ft2build.h>
@@ -46,6 +47,37 @@ static int on_error(Display *d, XErrorEvent *e)
 	(void)d;
 	xerror = e->error_code;
 	return 0;
+}
+
+static void get_work_area(int *width, int *height)
+{
+	Atom net_workarea = XInternAtom(display, "_NET_WORKAREA", False);
+	Atom actual_type;
+	int actual_format;
+	unsigned long nitems, bytes_after;
+	unsigned char *prop = NULL;
+
+	*width = 0;
+	*height = 0;
+
+	if (XGetWindowProperty(display, DefaultRootWindow(display), net_workarea,
+			       0, 4, False, XA_CARDINAL, &actual_type,
+			       &actual_format, &nitems, &bytes_after, &prop) == Success &&
+	    prop && nitems == 4) {
+		long *data = (long *)prop;
+		*width = data[2] - data[0];
+		*height = data[3] - data[1];
+	}
+	if (prop)
+		XFree(prop);
+
+	if (*width == 0 || *height == 0) {
+		Window root = DefaultRootWindow(display);
+		XWindowAttributes attr;
+		XGetWindowAttributes(display, root, &attr);
+		*width = attr.width;
+		*height = attr.height;
+	}
 }
 static struct surface *lookup(uint64_t id)
 {
@@ -427,8 +459,27 @@ int main(void)
 		return 1;
 	prctl(PR_SET_PDEATHSIG, SIGTERM);
 	signal(SIGPIPE, SIG_IGN);
+	
+	/* Open display early to get screen geometry for handshake */
+	display = XOpenDisplay(NULL);
+	if (!display)
+		return 126;
+	XSetErrorHandler(on_error);
+	wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
+	
+	Window root = DefaultRootWindow(display);
+	XWindowAttributes attr;
+	XGetWindowAttributes(display, root, &attr);
+	
+	int work_w, work_h;
+	get_work_area(&work_w, &work_h);
+	
 	struct pg_packet p = { .magic = PG_MAGIC, .op = PG_HELLO,
-		.status = FT_Init_FreeType(&ft) ? 8 : 0 };
+		.status = FT_Init_FreeType(&ft) ? 8 : 0,
+		.a = attr.width,
+		.b = attr.height,
+		.c = work_w,
+		.d = work_h };
 	if (send(3, &p, sizeof(p), MSG_NOSIGNAL) != (ssize_t)sizeof(p) ||
 	    p.status)
 		return 1;
@@ -460,12 +511,6 @@ int main(void)
 				native_font_query(&p);
 				break;
 			case PG_CREATE:
-				if (!display) {
-					display = XOpenDisplay(NULL);
-					if (!display) { p.status=126; break; }
-					XSetErrorHandler(on_error);
-					wm_delete=XInternAtom(display,"WM_DELETE_WINDOW",False);
-				}
 				if (s || !p.id || p.c < 1 || p.d < 1 ||
 				    p.c > PG_MAX_DIM || p.d > PG_MAX_DIM) {
 					p.status = 87;

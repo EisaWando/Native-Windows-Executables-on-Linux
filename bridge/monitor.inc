@@ -55,10 +55,6 @@ typedef struct tagMONITORINFOEXW {
 /* Primary monitor handle (synthetic value matching multimon.h) */
 #define PRIMARY_MONITOR_HANDLE ((HMONITOR)(uintptr_t)0x12340042)
 
-/* Screen dimensions (same as GetSystemMetrics SM_CXSCREEN=1920, SM_CYSCREEN=1080) */
-#define SCREEN_WIDTH  1920
-#define SCREEN_HEIGHT 1080
-
 /* MonitorFromPoint - respects dwFlags */
 __attribute__((ms_abi)) HMONITOR MonitorFromPoint(POINT pt, DWORD dwFlags)
 {
@@ -66,7 +62,7 @@ __attribute__((ms_abi)) HMONITOR MonitorFromPoint(POINT pt, DWORD dwFlags)
     if ((dwFlags & (MONITOR_DEFAULTTOPRIMARY | MONITOR_DEFAULTTONEAREST)) != 0)
         return PRIMARY_MONITOR_HANDLE;
     /* DEFAULTTONULL: return NULL if point is off-screen */
-    if (pt.x < 0 || pt.y < 0 || pt.x >= SCREEN_WIDTH || pt.y >= SCREEN_HEIGHT)
+    if (pt.x < 0 || pt.y < 0 || pt.x >= pe_screen_width() || pt.y >= pe_screen_height())
         return NULL;
     return PRIMARY_MONITOR_HANDLE;
 }
@@ -80,7 +76,7 @@ __attribute__((ms_abi)) HMONITOR MonitorFromRect(LPCRECT lprc, DWORD dwFlags)
         return PRIMARY_MONITOR_HANDLE;
     /* DEFAULTTONULL: return NULL if rect is off-screen */
     if (lprc->right <= 0 || lprc->bottom <= 0 || 
-        lprc->left >= SCREEN_WIDTH || lprc->top >= SCREEN_HEIGHT)
+        lprc->left >= pe_screen_width() || lprc->top >= pe_screen_height())
         return NULL;
     return PRIMARY_MONITOR_HANDLE;
 }
@@ -112,12 +108,12 @@ __attribute__((ms_abi)) BOOL GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lp
         lpmiex->cbSize = sizeof(MONITORINFOEXW);
         lpmiex->rcMonitor.left = 0;
         lpmiex->rcMonitor.top = 0;
-        lpmiex->rcMonitor.right = SCREEN_WIDTH;
-        lpmiex->rcMonitor.bottom = SCREEN_HEIGHT;
+        lpmiex->rcMonitor.right = pe_screen_width();
+        lpmiex->rcMonitor.bottom = pe_screen_height();
         lpmiex->rcWork.left = 0;
         lpmiex->rcWork.top = 0;
-        lpmiex->rcWork.right = SCREEN_WIDTH;
-        lpmiex->rcWork.bottom = SCREEN_HEIGHT;
+        lpmiex->rcWork.right = pe_work_width();
+        lpmiex->rcWork.bottom = pe_work_height();
         lpmiex->dwFlags = MONITORINFOF_PRIMARY;
         /* Device name: \\.\DISPLAY1 (10 wide chars including null) */
         static const uint16_t display_name[] = { 0x005c, 0x002e, 0x005c, 0x0044, 0x0049, 0x0053, 0x0050, 0x004c, 0x0041, 0x0059, 0x0031, 0 };
@@ -126,12 +122,12 @@ __attribute__((ms_abi)) BOOL GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lp
         lpmi->cbSize = sizeof(MONITORINFO);
         lpmi->rcMonitor.left = 0;
         lpmi->rcMonitor.top = 0;
-        lpmi->rcMonitor.right = SCREEN_WIDTH;
-        lpmi->rcMonitor.bottom = SCREEN_HEIGHT;
+        lpmi->rcMonitor.right = pe_screen_width();
+        lpmi->rcMonitor.bottom = pe_screen_height();
         lpmi->rcWork.left = 0;
         lpmi->rcWork.top = 0;
-        lpmi->rcWork.right = SCREEN_WIDTH;
-        lpmi->rcWork.bottom = SCREEN_HEIGHT;
+        lpmi->rcWork.right = pe_work_width();
+        lpmi->rcWork.bottom = pe_work_height();
         lpmi->dwFlags = MONITORINFOF_PRIMARY;
     }
     return TRUE;

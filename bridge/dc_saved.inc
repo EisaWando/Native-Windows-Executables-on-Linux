@@ -302,7 +302,7 @@ int GetClipBox(HANDLE dc, struct pe_rect *rc)
             return 2;
         }
     }
-    rc->left = 0; rc->top = 0; rc->right = 1920; rc->bottom = 1080;
+    rc->left = 0; rc->top = 0; rc->right = pe_screen_width(); rc->bottom = pe_screen_height();
     return 2;
 }
 

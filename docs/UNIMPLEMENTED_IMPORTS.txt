@@ -1,18 +1,227 @@
+# Unimplemented imports census (BRIDGE_LIST_UNIMPLEMENTED=1)
+# Generated from Notepad++ 8.9.8 x64 portable run
+# Total: 450 resolved, 170 unimplemented
 
-ADVAPI32.dll! CryptGetHashParam CryptDestroyHash CryptHashData CryptCreateHash CryptAcquireContextW IsTextUnicode CryptReleaseContext 7
-COMCTL32.dll! ImageList_EndDrag ImageList_DragShowNolock ImageList_DragEnter ImageList_DragMove ImageList_BeginDrag _TrackMouseEvent ordinal 0x0000000000000159 ImageList_GetImageInfo 8
-COMDLG32.dll! PrintDlgW ChooseColorW 2
-CRYPT32.dll! CertCloseStore CertGetCertificateContextProperty CertGetNameStringW CertFindCertificateInStore CryptMsgGetParam CryptQueryObject CryptMsgClose CertNameToStrW 8
-GDI32.dll! OffsetWindowOrgEx CreatePatternBrush SetBrushOrgEx StretchDIBits EndPage DPtoLP StartDocW EndDoc StartPage RectVisible CreateHatchBrush Polygon ExtCreatePen Ellipse GdiAlphaBlend SetROP2 GetClipRgn Polyline RoundRect GetROP2 20
-IMM32.dll! ImmGetContext ImmGetCompositionStringW ImmNotifyIME ImmSetCandidateWindow ImmSetCompositionStringW ImmEscapeW ImmSetCompositionWindow ImmSetCompositionFontW ImmReleaseContext 9
-KERNEL32.dll! TerminateThread GetExitCodeProcess GetFinalPathNameByHandleW SetFileTime FindFirstStreamW OpenProcess QueryFullProcessImageNameW CopyFileExW CompareStringOrdinal CancelIo QueueUserAPC ReadDirectoryChangesW CloseThreadpoolWork SubmitThreadpoolWork CreateThreadpoolWork FreeLibraryWhenCallbackReturns RaiseException GetFileInformationByHandleEx ReplaceFileW MoveFileExW GetLongPathNameW FreeLibrary CompareStringEx RtlCaptureContext RtlVirtualUnwind TerminateProcess RtlUnwindEx SetFileAttributesW FreeLibraryAndExitThread GetConsoleMode ReadConsoleW RtlUnwind CompareStringW EnumSystemLocalesW SetEnvironmentVariableW SetStdHandle SetEndOfFile WriteConsoleW 38
-MSIMG32.dll! AlphaBlend 1
-OLEAUT32.dll! ordinal 0x0000000000000004 ordinal 0x0000000000000006 2
-SHELL32.dll! DragQueryFileW SHCreateItemFromParsingName ShellExecuteExW SHParseDisplayName SHOpenFolderAndSelectItems SHFileOperationW DragFinish Shell_NotifyIconW ordinal 0x00000000000000a5 ShellExecuteW DragQueryPoint 11
-SHLWAPI.dll! PathCombineW PathCanonicalizeW PathAppendW PathCompactPathExW PathStripPathW AssocQueryStringW 6
-SensApi.dll! IsNetworkAlive IsDestinationReachableW 2
-USER32.dll! SetRectEmpty GetCapture ScrollWindow MsgWaitForMultipleObjects NotifyWinEvent SystemParametersInfoA GetDoubleClickTime mouse_event TrackPopupMenu MessageBoxA FlashWindowEx SetCapture ReleaseCapture TrackPopupMenuEx SetClipboardViewer ChangeClipboardChain MessageBeep SetCursor ToAscii ShowCursor GetLastActivePopup GetWindowTextA GetDCEx InflateRect EqualRect MessageBoxW GetMenuBarInfo OffsetRect TrackMouseEvent IntersectRect GetWindowDC GetComboBoxInfo PtInRect SetForegroundWindow IsZoomed IsIconic CreateIconIndirect GetIconInfo SetLayeredWindowAttributes 39
-UxTheme.dll! GetThemeColor GetThemeFont GetThemeBackgroundContentRect EndBufferedAnimation GetThemeTransitionDuration DrawThemeParentBackground GetThemePartSize DrawThemeBackground BufferedPaintRenderAnimation BeginBufferedAnimation DrawThemeTextEx BufferedPaintStopAllAnimations 12
-WININET.dll! InternetCrackUrlW 1
-dwmapi.dll! DwmSetWindowAttribute 1
-ole32.dll! CLSIDFromProgID ReleaseStgMedium DoDragDrop 3
+# Per-DLL counts:
+# ADVAPI32.dll: 7
+# COMCTL32.dll: 8
+# COMDLG32.dll: 2
+# CRYPT32.dll: 8
+# GDI32.dll: 20
+# IMM32.dll: 9
+# KERNEL32.dll: 38
+# MSIMG32.dll: 1
+# OLEAUT32.dll: 2
+# SHELL32.dll: 11
+# SHLWAPI.dll: 6
+# SensApi.dll: 2
+# USER32.dll: 39
+# UxTheme.dll: 12
+# WININET.dll: 1
+# dwmapi.dll: 1
+# ole32.dll: 3
+# Total: 170
+
+ADVAPI32.dll (7):
+  CryptGetHashParam
+  CryptDestroyHash
+  CryptHashData
+  CryptCreateHash
+  CryptAcquireContextW
+  IsTextUnicode
+  CryptReleaseContext
+
+COMCTL32.dll (8):
+  ImageList_EndDrag
+  ImageList_DragShowNolock
+  ImageList_DragEnter
+  ImageList_DragMove
+  ImageList_BeginDrag
+  _TrackMouseEvent
+  ordinal 0x0000000000000159
+  ImageList_GetImageInfo
+
+COMDLG32.dll (2):
+  PrintDlgW
+  ChooseColorW
+
+CRYPT32.dll (8):
+  CertCloseStore
+  CertGetCertificateContextProperty
+  CertGetNameStringW
+  CertFindCertificateInStore
+  CryptMsgGetParam
+  CryptQueryObject
+  CryptMsgClose
+  CertNameToStrW
+
+GDI32.dll (20):
+  OffsetWindowOrgEx
+  CreatePatternBrush
+  SetBrushOrgEx
+  StretchDIBits
+  EndPage
+  DPtoLP
+  StartDocW
+  EndDoc
+  StartPage
+  RectVisible
+  CreateHatchBrush
+  Polygon
+  ExtCreatePen
+  Ellipse
+  GdiAlphaBlend
+  SetROP2
+  GetClipRgn
+  Polyline
+  RoundRect
+  GetROP2
+
+IMM32.dll (9):
+  ImmGetContext
+  ImmGetCompositionStringW
+  ImmNotifyIME
+  ImmSetCandidateWindow
+  ImmSetCompositionStringW
+  ImmEscapeW
+  ImmSetCompositionWindow
+  ImmSetCompositionFontW
+  ImmReleaseContext
+
+KERNEL32.dll (38):
+  TerminateThread
+  GetExitCodeProcess
+  GetFinalPathNameByHandleW
+  SetFileTime
+  FindFirstStreamW
+  OpenProcess
+  QueryFullProcessImageNameW
+  CopyFileExW
+  CompareStringOrdinal
+  CancelIo
+  QueueUserAPC
+  ReadDirectoryChangesW
+  CloseThreadpoolWork
+  SubmitThreadpoolWork
+  CreateThreadpoolWork
+  FreeLibraryWhenCallbackReturns
+  RaiseException
+  GetFileInformationByHandleEx
+  ReplaceFileW
+  MoveFileExW
+  GetLongPathNameW
+  FreeLibrary
+  CompareStringEx
+  RtlCaptureContext
+  RtlVirtualUnwind
+  TerminateProcess
+  RtlUnwindEx
+  SetFileAttributesW
+  FreeLibraryAndExitThread
+  GetConsoleMode
+  ReadConsoleW
+  RtlUnwind
+  CompareStringW
+  EnumSystemLocalesW
+  SetEnvironmentVariableW
+  SetStdHandle
+  SetEndOfFile
+  WriteConsoleW
+
+MSIMG32.dll (1):
+  AlphaBlend
+
+OLEAUT32.dll (2):
+  ordinal 0x0000000000000004
+  ordinal 0x0000000000000006
+
+SHELL32.dll (11):
+  DragQueryFileW
+  SHCreateItemFromParsingName
+  ShellExecuteExW
+  SHParseDisplayName
+  SHOpenFolderAndSelectItems
+  SHFileOperationW
+  DragFinish
+  Shell_NotifyIconW
+  ordinal 0x00000000000000a5
+  ShellExecuteW
+  DragQueryPoint
+
+SHLWAPI.dll (6):
+  PathCombineW
+  PathCanonicalizeW
+  PathAppendW
+  PathCompactPathExW
+  PathStripPathW
+  AssocQueryStringW
+
+SensApi.dll (2):
+  IsNetworkAlive
+  IsDestinationReachableW
+
+USER32.dll (39):
+  SetRectEmpty
+  GetCapture
+  ScrollWindow
+  MsgWaitForMultipleObjects
+  NotifyWinEvent
+  SystemParametersInfoA
+  GetDoubleClickTime
+  mouse_event
+  TrackPopupMenu
+  MessageBoxA
+  FlashWindowEx
+  SetCapture
+  ReleaseCapture
+  TrackPopupMenuEx
+  EnumDisplayMonitors
+  SetClipboardViewer
+  ChangeClipboardChain
+  MessageBeep
+  SetCursor
+  ToAscii
+  ShowCursor
+  GetLastActivePopup
+  GetWindowTextA
+  GetDCEx
+  InflateRect
+  EqualRect
+  MessageBoxW
+  GetMenuBarInfo
+  OffsetRect
+  TrackMouseEvent
+  IntersectRect
+  GetWindowDC
+  GetComboBoxInfo
+  PtInRect
+  IsZoomed
+  IsIconic
+  CreateIconIndirect
+  GetIconInfo
+  SetLayeredWindowAttributes
+
+UxTheme.dll (12):
+  GetThemeColor
+  GetThemeFont
+  GetThemeBackgroundContentRect
+  EndBufferedAnimation
+  GetThemeTransitionDuration
+  DrawThemeParentBackground
+  GetThemePartSize
+  DrawThemeBackground
+  BufferedPaintRenderAnimation
+  BeginBufferedAnimation
+  DrawThemeTextEx
+  BufferedPaintStopAllAnimations
+
+WININET.dll (1):
+  InternetCrackUrlW
+
+dwmapi.dll (1):
+  DwmSetWindowAttribute
+
+ole32.dll (3):
+  CLSIDFromProgID
+  ReleaseStgMedium
+  DoDragDrop
