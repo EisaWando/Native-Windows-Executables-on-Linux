@@ -120,6 +120,10 @@ USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxThem
 
 **Latest observed count: 445 resolved, 175 unimplemented.** Notepad++ now exits 127 at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized.
 
+### Notepad++ running
+
+https://github.com/user-attachments/assets/e1db47d7-31e9-4ad3-80a2-876f1fa6e90f
+
 ### GUI design
 
 The team has selected an original Windows compatibility layer. The bridge owns
@@ -198,7 +202,7 @@ Please use a **virtual machine** for development.
 | **Security review** | Fuzzing the PE loader, reviewing parsing code |
 | **Docs** | Architecture docs, PE format notes, tutorials for new contributors |
 
-**Good first issues:** add a PE test for an API group (registry, time, strings); write a `.seh_handler`-based exception test; review the bridge's bounds checks; add `docs/ARCHITECTURE.md`.
+
 
 ### Ground rules
 
