@@ -23,9 +23,6 @@ static const char *pe_trace_modname_from_handle(void *handle)
 		if (idx == n)
 			return "api-ms-win-core-*";
 	}
-	if (h >= FAKE_HMODULE_BASE + 0x100000ULL && h < FAKE_HMODULE_BASE + 0x200000ULL) {
-		return "Z-path";
-	}
 	return "unknown";
 }
 /* Output the return address (in notepad++.exe) from which this function was called.
