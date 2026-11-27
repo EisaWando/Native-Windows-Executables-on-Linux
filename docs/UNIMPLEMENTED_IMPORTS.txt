@@ -1,6 +1,6 @@
 # Unimplemented imports census (BRIDGE_LIST_UNIMPLEMENTED=1)
 # Generated from Notepad++ 8.9.8 x64 portable run
-# Total: 450 resolved, 170 unimplemented
+# Total: 445 resolved, 175 unimplemented
 
 # Per-DLL counts:
 # ADVAPI32.dll: 7

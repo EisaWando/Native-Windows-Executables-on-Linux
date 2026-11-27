@@ -1,6 +1,6 @@
 # binfmt_pe — Native Windows Executables on Linux, Without Wine
 
-> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader; console programs pass the regression suite, including multithreading. The latest Notepad++ run resolved **443 of 620 imports** and exited at `USER32!MessageBoxW`, called after `CreateDialogParam` returned NULL. The owner previously confirmed that Notepad++ displayed its first window, with incomplete layout, menu colors, text glyphs and input. The latest automated run did not reach a visible window.
+> **Status: working research prototype.** Real Windows x64 programs load and run through our own kernel loader; console programs pass the regression suite, including multithreading. The latest Notepad++ run resolved **445 of 620 imports** (175 unimplemented). The automated full suite: **93 PASS**, **0 FAIL**. Notepad++ exits at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized. The owner confirmed Notepad++ displayed its first window in a desktop run, with incomplete layout, menu colors, text glyphs and input.
 
 ---
 
@@ -70,7 +70,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 
 ## Current status
 
-### Verified by real runs (`bash tests/run_all.sh`, 90 PASS on 2026-11-23)
+### Verified by real runs (`bash tests/run_all.sh`, 93 PASS)
 
 - [x] Hidden/zero-size windows, properties, subclass chains and cross-thread messages
 - [x] Window tree: parent/child relationships, reparenting and newest-first z-order with hit testing
@@ -118,7 +118,7 @@ Design rule: **keep the kernel part minimal.** Everything that can live in userl
 ### Import profile of Notepad++ (620 imports)
 USER32 216, KERNEL32 192, GDI32 66, ADVAPI32 26, COMCTL32 24, SHLWAPI 17, UxTheme 16, SHELL32 12, ole32 12, IMM32 9, CRYPT32 8, bcrypt 7, and about a dozen DLLs with 1-3 imports each. The window system (USER32 + GDI32) is more than 45% of the surface and is the main remaining cost.
 
-**Latest observed count: 443 resolved, 177 unimplemented.** Notepad++ now exits 127 at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized.
+**Latest observed count: 445 resolved, 175 unimplemented.** Notepad++ now exits 127 at `RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized.
 
 ### GUI design
 

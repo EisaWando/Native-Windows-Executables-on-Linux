@@ -9,7 +9,7 @@ showed main window visible=1 realized=1, but toolbar/statusbar have visible=1 re
 many child controls remain unrealized. Run with BRIDGE_TRACE_MOVES=1 for
 debug output. Current Notepad++ stop at `RaiseException` (unimplemented) with
 C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found.").
-Imports: 443 resolved, 177 unimplemented. See `docs/SESSION_STATE.md` for the exact
+Imports: 445 resolved, 175 unimplemented. See `docs/SESSION_STATE.md` for the exact
 command output and resume steps.
 
 The owner approved an original implementation on 2026-10-24. No Wine or

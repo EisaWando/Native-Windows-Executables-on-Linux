@@ -6,8 +6,8 @@ unless the owner explicitly asks.
 
 ## Current blocker
 
-The latest automated `-noPlugin` run (2026-11-23) exited 127 at
-`RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized. Full suite: **90 PASS, 0 FAIL**.
+The latest automated `-noPlugin` run exited 127 at
+`RaiseException` (unimplemented) with C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found."). Window tree shows main window created (visible=1, realized=1); toolbar/statusbar have visible=1 realized=0; child controls unrealized. Full suite: **93 PASS, 0 FAIL**.
 
 Previous run (2026-11-01) exited 127 at `USER32!MessageBoxW` after
 `CreateDialogParam() return NULL`; that run reported 443 resolved and 177 unimplemented imports.
@@ -29,9 +29,10 @@ Previous run (2026-11-01) exited 127 at `USER32!MessageBoxW` after
 
 ## Verification baseline
 
-On 2026-11-23, `bash tests/run_all.sh` exited 0 with **90 PASS lines**. The suite's
+On 2026-11-23, `bash tests/run_all.sh` exited 0 with **93 PASS lines**. The suite's
 informational Notepad++ run exited 127 at `RaiseException` (unimplemented) with
 C++ exception code=0xe06d7363 (std::bad_alloc / "The specified module could not be found.").
+Imports: 445 resolved, 175 unimplemented.
 See `docs/SESSION_STATE.md` for the raw latest command output and exact resume
 command.
 
