@@ -51,8 +51,7 @@ Previous commits (14b77e404, 13d24b7d2) introduced fakery:
 - Fake module handle range: [0x6ff00000, 0x70000000) - does not overlap bridge image at 0x70000000
 - Shim pointers (GetProcAddress results) never overlap fake module handle range
 
-## Current commit: (to be committed)
-File: `S2: Revert fakery; S3: Fix fake handle range; S4: Update SESSION_STATE`
+## Current commit: a9de0b857 (docs: Update README.md, NEXT_TASKS.md, GUI_DESIGN.md, UNIMPLEMENTED_IMPORTS.txt with latest import counts)
 
 ## Current state
 - **Suite result:** 93 PASS, 0 FAIL
@@ -87,7 +86,7 @@ File: `S2: Revert fakery; S3: Fix fake handle range; S4: Update SESSION_STATE`
 - **S2:** Reverted fakery - removed plugin stubs, fake handles, extra builtin modules; kept Z:\ translation + trace improvements
 - **S3:** is_fake_module_handle() range fixed to [0x6ff00000, 0x70000000); test fake_handle_test.exe verifies no overlap
 - **S4:** SESSION_STATE.md updated with real PASS/FAIL, HEAD hash, plain-run stop verbatim
-- **S5:** docs/EH_DESIGN.md created (next step)
+- **S5:** docs/EH_DESIGN.md created, additional docs updated (README.md, NEXT_TASKS.md, GUI_DESIGN.md)
 
 ## Known limitations
 No native pointer warping, no RTL mirroring, topmost not propagated through owner chain, PNG/RLE icons unsupported, clipboard process-local, local time = UTC, controls largely headless, no x64 unwinding beyond function lookup, no real DLL loading for arbitrary Z:\ paths.
